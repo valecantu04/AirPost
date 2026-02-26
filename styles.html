@@ -144,6 +144,39 @@
     .custom-scrollbar::-webkit-scrollbar-thumb { background: var(--border-moderate); border-radius: 4px; }
     .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: var(--brand-primary); }
 
+    /* --- SUMMARY SIDEBAR ITEM STYLES --- */
+    .summary-item {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        padding-bottom: 1rem;
+        margin-bottom: 1rem;
+        border-bottom: 1px solid var(--border-moderate);
+    }
+    .summary-item:last-child {
+        border-bottom: none;
+        margin-bottom: 0;
+        padding-bottom: 0;
+    }
+    .summary-label {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-secondary);
+        font-weight: 600;
+    }
+    .summary-value {
+        font-size: 0.95rem;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .summary-value.pending {
+        color: var(--text-disabled);
+        font-style: italic;
+    }
+
     /* Toast Animation */
     @keyframes slideInUp { from { transform: translate(-50%, 100%); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
     @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }

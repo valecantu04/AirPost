@@ -23,6 +23,8 @@
         const [templates, setTemplates] = useState([]);
         const [selectedAlias, setSelectedAlias] = useState('');
         const [selectedTemplate, setSelectedTemplate] = useState('');
+        const [showFolderSettings, setShowFolderSettings] = useState(false);
+        const [folderIdInput, setFolderIdInput] = useState('');
         
         // Audience State
         const [sheetUrl, setSheetUrl] = useState('');
@@ -33,9 +35,30 @@
 
         // Preview & Send State
         const [subjectLine, setSubjectLine] = useState('');
-        const [previewHtml, setPreviewHtml] = useState(null);
+        const [previewData, setPreviewData] = useState(null);
+        const [previewIndex, setPreviewIndex] = useState(0);
+        const [isFetchingPreview, setIsFetchingPreview] = useState(false);
         const [isSending, setIsSending] = useState(false);
         const [sendResults, setSendResults] = useState(null);
+
+        // --- UI COMPONENT: Live Subject Highlighter ---
+        const HighlightedSubject = ({ text }) => {
+            if (!text) return <span className="text-slate-400 italic">(Enter subject above)</span>;
+            
+            // Split by {{Variable}} preserving the match
+            const parts = text.split(/({{.*?}})/g);
+            return (
+                <span>
+                    {parts.map((part, i) => {
+                        if (part.startsWith('{{') && part.endsWith('}}')) {
+                            // Render variables with a cyan pill highlight
+                            return <span key={i} className="bg-cyan-100 text-cyan-800 px-1 rounded font-semibold">{part.replace(/[{}]/g, '')}</span>;
+                        }
+                        return <span key={i}>{part}</span>; // Render normal text
+                    })}
+                </span>
+            );
+        };
 
         // --- INITIALIZATION ---
         useEffect(() => {
@@ -74,6 +97,20 @@
         };
 
         // --- STEP 1 LOGIC ---
+        const handleUpdateFolder = async () => {
+            if (!folderIdInput) return;
+            try {
+                await runGas('setTemplateFolderId', folderIdInput);
+                addToast('Source folder updated!', 'success');
+                const templatesData = await runGas('getTemplates');
+                setTemplates(templatesData || []);
+                setSelectedTemplate('');
+                setShowFolderSettings(false);
+            } catch (err) {
+                addToast(err.message, 'error');
+            }
+        };
+
         const handleStep1Next = () => {
             if (!selectedAlias || !selectedTemplate) {
                 addToast('Please select a sender and template.', 'error');
@@ -131,20 +168,26 @@
         };
 
         // --- STEP 3 LOGIC ---
-        const handleGeneratePreview = async () => {
+        const fetchPreview = async (index) => {
+            setIsFetchingPreview(true);
+            try {
+                const sheetId = sheetUrl.match(/[-\w]{25,}/)[0];
+                const res = await runGas('generateEmailPreview', sheetId, selectedTemplate, selectedTab, index);
+                setPreviewData(res);
+                setPreviewIndex(index);
+            } catch (err) {
+                addToast('Failed to generate preview', 'error');
+            } finally {
+                setIsFetchingPreview(false);
+            }
+        };
+
+        const handleGeneratePreview = () => {
             if (!subjectLine) {
                 addToast('Please enter a subject line.', 'error');
                 return;
             }
-            setPreviewHtml('<div class="flex items-center justify-center p-8"><i class="fa-solid fa-circle-notch fa-spin text-2xl text-slate-400"></i></div>');
-            try {
-                const sheetId = sheetUrl.match(/[-\w]{25,}/)[0];
-                const html = await runGas('generateEmailPreview', sheetId, selectedTemplate, selectedTab);
-                setPreviewHtml(html);
-            } catch (err) {
-                setPreviewHtml('<div class="text-red-500 p-4">Error generating preview.</div>');
-                addToast('Failed to generate preview', 'error');
-            }
+            fetchPreview(0); // Always start at Row 0 when initially clicking "Gen Preview"
         };
 
         const handleSendEmails = async () => {
@@ -265,7 +308,23 @@
                                             </select>
                                         </div>
                                         <div className="app-card">
-                                            <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2">Email Template:</label>
+                                            <div className="flex justify-between items-end mb-2">
+                                                <label className="block text-sm font-semibold text-[var(--text-secondary)]">Email Template:</label>
+                                                <button onClick={() => setShowFolderSettings(!showFolderSettings)} className="text-xs text-[var(--brand-primary)] hover:text-white transition-colors font-semibold flex items-center gap-1">
+                                                    <i className="fa-solid fa-folder-tree"></i> Change Source Folder
+                                                </button>
+                                            </div>
+                                            
+                                            {showFolderSettings && (
+                                                <div className="mb-4 p-4 bg-black/20 border border-[var(--border-weak)] rounded-lg animate-fade-in">
+                                                    <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-1">Google Drive Folder ID:</label>
+                                                    <div className="flex gap-2">
+                                                        <input type="text" placeholder="Paste Folder ID here" className="form-input !py-2 text-sm flex-1" value={folderIdInput} onChange={e => setFolderIdInput(e.target.value)} />
+                                                        <button onClick={handleUpdateFolder} className="btn btn-secondary !py-2">Update</button>
+                                                    </div>
+                                                </div>
+                                            )}
+
                                             <select className="form-input" value={selectedTemplate} onChange={e => setSelectedTemplate(e.target.value)}>
                                                 <option value="" disabled>-- Select a Google Doc Template --</option>
                                                 {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -307,23 +366,27 @@
                                         {validationState.status !== 'idle' && (
                                             <div className="bg-black/20 rounded-lg border border-[var(--border-weak)] overflow-hidden">
                                                 <div className="bg-[var(--surface-primary)] p-3 border-b border-[var(--border-moderate)] font-semibold text-sm flex justify-between items-center">
-                                                    <span className="text-[var(--text-secondary)]">Validation Results</span>
+                                                    <span className="text-[var(--text-secondary)]">Template Requirements</span>
                                                     {validationState.status === 'success' 
                                                         ? <span className="text-xs px-2 py-1 rounded-full bg-[var(--status-success)]/20 border border-[var(--status-success)]/50 text-[var(--status-success)] font-bold"><i className="fa-solid fa-check"></i> Valid</span>
                                                         : <span className="text-xs px-2 py-1 rounded-full bg-[var(--status-critical)]/20 border border-[var(--status-critical)]/50 text-[var(--status-critical)] font-bold"><i className="fa-solid fa-xmark"></i> Missing Fields</span>
                                                     }
                                                 </div>
-                                                <div className="p-4">
+                                                <div className="p-4 max-h-48 overflow-y-auto custom-scrollbar">
                                                     {validationState.status === 'error' && (
-                                                        <p className="text-sm text-[var(--status-critical)] mb-2">Missing from Sheet: {validationState.details.missingKeywords.join(', ')}</p>
+                                                        <p className="text-sm text-[var(--status-critical)] mb-3">Please ensure your Google Sheet contains these exact headers:</p>
                                                     )}
-                                                    <div className="flex gap-2 flex-wrap">
-                                                        {validationState.details?.templateHeaders?.map(h => (
-                                                            <span key={h} className={`px-2 py-1 rounded text-xs font-mono border ${validationState.details.missingKeywords.includes(h) ? 'bg-[var(--status-critical)]/10 border-[var(--status-critical)]/30 text-[var(--status-critical)]' : 'bg-[var(--status-success)]/10 border-[var(--status-success)]/30 text-[var(--status-success)]'}`}>
-                                                                {h}
-                                                            </span>
-                                                        ))}
-                                                    </div>
+                                                    <ul className="space-y-2">
+                                                        {validationState.details?.templateHeaders?.map(h => {
+                                                            const isMissing = validationState.details.missingKeywords.includes(h);
+                                                            return (
+                                                                <li key={h} className={`flex items-center justify-between p-2 rounded border ${isMissing ? 'bg-[var(--status-critical)]/10 border-[var(--status-critical)]/30' : 'bg-[var(--status-success)]/10 border-[var(--status-success)]/30'}`}>
+                                                                    <span className={`font-mono text-sm ${isMissing ? 'text-[var(--status-critical)]' : 'text-[var(--status-success)]'}`}>{`{{${h}}}`}</span>
+                                                                    <i className={`fa-solid ${isMissing ? 'fa-xmark text-[var(--status-critical)]' : 'fa-check text-[var(--status-success)]'}`}></i>
+                                                                </li>
+                                                            );
+                                                        })}
+                                                    </ul>
                                                 </div>
                                             </div>
                                         )}
@@ -389,14 +452,39 @@
 
                                         <div className="flex-grow flex flex-col bg-white rounded-lg overflow-hidden border border-[var(--border-moderate)] text-slate-800 min-h-0">
                                             <div className="bg-slate-100 border-b border-slate-200 p-2 px-4 flex justify-between items-center text-xs text-slate-500 shrink-0">
-                                                <span>Recipient Preview (Row 1)</span>
+                                                <span><i className="fa-solid fa-eye"></i> Recipient Preview</span>
+                                                
+                                                {/* Pagination Controls */}
+                                                {previewData && (
+                                                    <div className="flex items-center gap-2 bg-white rounded shadow-sm border border-slate-200">
+                                                        <button 
+                                                            onClick={() => fetchPreview(previewIndex - 1)} 
+                                                            disabled={previewIndex === 0 || isFetchingPreview} 
+                                                            className="px-2 py-1 hover:bg-slate-50 border-r border-slate-200 disabled:opacity-50">
+                                                            <i className="fa-solid fa-chevron-left"></i>
+                                                        </button>
+                                                        <span className="font-semibold px-2 w-28 text-center">Row {previewData.currentRow} of {previewData.totalRows}</span>
+                                                        <button 
+                                                            onClick={() => fetchPreview(previewIndex + 1)} 
+                                                            disabled={previewIndex >= previewData.totalRows - 1 || isFetchingPreview} 
+                                                            className="px-2 py-1 hover:bg-slate-50 border-l border-slate-200 disabled:opacity-50">
+                                                            <i className="fa-solid fa-chevron-right"></i>
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </div>
                                             <div className="bg-slate-50 border-b border-slate-200 p-4 text-sm shrink-0">
                                                 <div className="flex mb-1"><span className="w-16 text-slate-500">From:</span> <span className="font-semibold">{selectedAlias}</span></div>
-                                                <div className="flex"><span className="w-16 text-slate-500">Subject:</span> <span className="font-bold">{subjectLine || <span className="text-slate-400 italic">No subject</span>}</span></div>
+                                                <div className="flex mb-1"><span className="w-16 text-slate-500">To:</span> <span className="font-semibold">{previewData ? previewData.toEmail : <span className="italic text-slate-400">Loading...</span>}</span></div>
+                                                <div className="flex"><span className="w-16 text-slate-500">Subject:</span> <HighlightedSubject text={subjectLine} /></div>
                                             </div>
-                                            <div className="p-6 overflow-y-auto custom-scrollbar flex-grow bg-white text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: previewHtml || '<p class="text-slate-400 italic text-center mt-10">Click "Gen Preview" to render template.</p>' }}>
-                                            </div>
+                                            
+                                            {/* HTML Body Render */}
+                                            {isFetchingPreview ? (
+                                                <div className="flex items-center justify-center flex-grow p-8 bg-white"><i className="fa-solid fa-circle-notch fa-spin text-3xl text-slate-300"></i></div>
+                                            ) : (
+                                                <div className="p-6 overflow-y-auto custom-scrollbar flex-grow bg-white text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: previewData?.html || '<p class="text-slate-400 italic text-center mt-10">Click "Gen Preview" to render template.</p>' }}></div>
+                                            )}
                                         </div>
                                     </div>
 
@@ -431,6 +519,12 @@
                                     <span className="summary-label">Subject Line</span>
                                     {subjectLine ? <div className="summary-value"><i className="fa-solid fa-pen text-[var(--brand-primary)]"></i> <span className="truncate">{subjectLine}</span></div> : <div className="summary-value pending">Pending...</div>}
                                 </div>
+                            </div>
+                            
+                            {/* Missing Sidebar Info Box */}
+                            <div className="mt-auto bg-[var(--surface-primary)] border border-[var(--border-weak)] rounded-lg p-4 text-xs text-[var(--text-secondary)] leading-relaxed">
+                                <i className="fa-solid fa-circle-info text-[var(--brand-primary)] mb-2 text-base"></i><br/>
+                                Emails are sent sequentially via Google Workspace. Ensure you respect your daily quota limits to avoid bounces.
                             </div>
                         </div>
 

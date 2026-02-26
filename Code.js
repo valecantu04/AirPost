@@ -405,26 +405,38 @@ function getGmailSignature(fromEmail) {
   }
 }
 
-function generateEmailPreview(sheetId, templateId, tabName) {
+function generateEmailPreview(sheetId, templateId, tabName, rowIndex = 0) {
   try {
-    var templateText = getTemplateContent(templateId);
-    const recipientData = getSheetData(sheetId, tabName); // getSheetData already optimized
-    const firstRecipient = recipientData[0]; // Assuming at least one row exists for preview
-
-    if (!firstRecipient) {
+    let templateText = getTemplateContent(templateId);
+    const recipientData = getSheetData(sheetId, tabName); 
+    
+    const totalRows = recipientData.length;
+    if (totalRows === 0) {
         throw new Error("No data found in the sheet for preview.");
     }
 
-    if (firstRecipient['Name']) {
-      firstRecipient['Name'] = formatName(firstRecipient['Name']);
+    // Ensure the index doesn't go out of bounds
+    const safeIndex = Math.max(0, Math.min(rowIndex, totalRows - 1));
+    const recipient = recipientData[safeIndex];
+
+    if (recipient['Name']) {
+      recipient['Name'] = formatName(recipient['Name']);
     }
-    Object.keys(firstRecipient).forEach(key => {
-      templateText = templateText.replace(new RegExp(`{{${key}}}`, 'g'), firstRecipient[key] || '');
+    
+    Object.keys(recipient).forEach(key => {
+      templateText = templateText.replace(new RegExp(`{{${key}}}`, 'g'), recipient[key] || '');
     });
-    return templateText;
+    
+    return {
+      html: templateText,
+      totalRows: totalRows,
+      toEmail: recipient['Email'] || 'Unknown',
+      currentRow: safeIndex + 1
+    };
+    
   } catch (error) {
     Logger.log(`Error generating email preview: ${error.message}\nStack: ${error.stack}`);
-    return "Error generating preview.";
+    throw new Error("Error generating preview.");
   }
 }
 
