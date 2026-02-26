@@ -203,16 +203,21 @@ function sendEmailsWithSheet(sheetId, templateId, subject, tabName, fromEmail, f
     const templateName = DriveApp.getFileById(templateId).getName();
 
     allData.forEach((row, rowIndex) => {
+      let recipient = {};
+      headers.forEach((header, index) => {
+        recipient[header] = row[index];
+      });
+
+      // --- Skip completely empty rows or missing emails ---
+      if (!recipient["Email"] || recipient["Email"].toString().trim() === "") {
+        return; 
+      }
+
       // Check if already processed (has a timestamp)
       if (row[timestampColumnIndex]) {
         emailsSkipped++;
         return;
       }
-
-      let recipient = {};
-      headers.forEach((header, index) => {
-        recipient[header] = row[index];
-      });
 
       if (recipient['Name']) {
         recipient['Name'] = formatName(recipient['Name']);

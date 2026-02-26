@@ -35,6 +35,7 @@
         const [subjectLine, setSubjectLine] = useState('');
         const [previewHtml, setPreviewHtml] = useState(null);
         const [isSending, setIsSending] = useState(false);
+        const [sendResults, setSendResults] = useState(null);
 
         // --- INITIALIZATION ---
         useEffect(() => {
@@ -152,6 +153,7 @@
             if (!confirm("Are you sure you want to send emails? This cannot be undone.")) return;
 
             setIsSending(true);
+            setSendResults(null);
             try {
                 const sheetId = sheetUrl.match(/[-\w]{25,}/)[0];
                 const selectedAliasObj = aliases.find(a => a.email === selectedAlias);
@@ -159,10 +161,22 @@
                 const res = await runGas('sendEmailsWithSheet', sheetId, selectedTemplate, subjectLine, selectedTab, selectedAlias, selectedAliasObj.displayName);
                 
                 if (res.success) {
-                    addToast(res.message, 'success');
+                    setSendResults(res.details); // Store the payload
+                    
+                    // Dynamic toast messaging based on results
+                    if (res.details.failed && res.details.failed.length > 0) {
+                        addToast(`Sent ${res.details.sent}, but ${res.details.failed.length} failed.`, 'error');
+                    } else if (res.details.sent > 0) {
+                        addToast(`Successfully sent ${res.details.sent} emails!`, 'success');
+                    } else if (res.details.skipped > 0) {
+                        addToast(`0 sent. ${res.details.skipped} skipped (already processed).`, 'success');
+                    } else {
+                        addToast(`0 emails sent. No valid emails found in sheet.`, 'error');
+                    }
+                    
                     runGas('getTotalSentEmailCount').then(count => setGlobalData(prev => ({...prev, totalSent: count})));
                 } else {
-                    addToast('Some emails failed to send.', 'error');
+                    addToast('Failed to execute send operation.', 'error');
                 }
             } catch (err) {
                 addToast(err.message, 'error');
@@ -340,6 +354,38 @@
                                             <input type="text" placeholder="Email Subject Line (e.g. Hi {{Name}}!)" className="form-input flex-grow" value={subjectLine} onChange={e => setSubjectLine(e.target.value)} />
                                             <button onClick={handleGeneratePreview} className="btn btn-secondary whitespace-nowrap"><i className="fa-solid fa-eye"></i> Gen Preview</button>
                                         </div>
+
+                                        {/* DELIVERY REPORT UI */}
+                                        {sendResults && (
+                                            <div className={`mb-4 p-4 rounded-lg border shadow-inner ${sendResults.failed.length > 0 ? 'bg-[var(--status-critical)]/10 border-[var(--status-critical)]/30' : 'bg-[var(--status-success)]/10 border-[var(--status-success)]/30'}`}>
+                                                <h4 className="font-bold mb-3 flex items-center gap-2 text-sm uppercase tracking-wide text-white">
+                                                    <i className="fa-solid fa-chart-pie"></i> Delivery Report
+                                                </h4>
+                                                <div className="flex gap-6 text-sm mb-1 font-medium">
+                                                    <span className="text-[var(--status-success)]"><i className="fa-solid fa-paper-plane mr-1"></i> Sent: <strong>{sendResults.sent}</strong></span>
+                                                    <span className="text-[var(--text-secondary)]"><i className="fa-solid fa-forward-step mr-1"></i> Skipped: <strong>{sendResults.skipped}</strong></span>
+                                                    <span className={sendResults.failed.length > 0 ? 'text-[var(--status-critical)]' : 'text-[var(--text-secondary)]'}><i className="fa-solid fa-triangle-exclamation mr-1"></i> Failed: <strong>{sendResults.failed.length}</strong></span>
+                                                </div>
+                                                
+                                                {/* Explain the skipped emails behavior contextually */}
+                                                {sendResults.skipped > 0 && sendResults.sent === 0 && (
+                                                    <p className="text-xs text-[var(--text-secondary)] mt-2 italic bg-black/20 p-2 rounded">
+                                                        * To re-send to skipped contacts, clear the contents of the "Timestamp" column in your Google Sheet.
+                                                    </p>
+                                                )}
+
+                                                {/* Map out specific failures if they exist */}
+                                                {sendResults.failed.length > 0 && (
+                                                    <div className="mt-3 max-h-32 overflow-y-auto custom-scrollbar bg-black/40 p-3 rounded text-xs text-[var(--status-critical)] border border-[var(--status-critical)]/20">
+                                                        <ul className="list-disc pl-4 space-y-1">
+                                                            {sendResults.failed.map((f, i) => (
+                                                                <li key={i}><strong>{f.email || 'Unknown'}</strong>: {f.error}</li>
+                                                            ))}
+                                                        </ul>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
 
                                         <div className="flex-grow flex flex-col bg-white rounded-lg overflow-hidden border border-[var(--border-moderate)] text-slate-800 min-h-0">
                                             <div className="bg-slate-100 border-b border-slate-200 p-2 px-4 flex justify-between items-center text-xs text-slate-500 shrink-0">
