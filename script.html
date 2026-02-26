@@ -108,8 +108,12 @@
         // --- STEP 1 LOGIC ---
         const handleUpdateFolder = async () => {
             if (!folderIdInput) return;
+
+            // If the user pasted a full URL, extract the ID. Otherwise, assume they pasted the raw ID.
+            const idMatch = folderIdInput.match(/[-\w]{25,}/);
+            const finalFolderId = idMatch ? idMatch[0] : folderIdInput.trim();
             try {
-                await runGas('setTemplateFolderId', folderIdInput);
+                await runGas('setTemplateFolderId', finalFolderId);
                 addToast('Source folder updated!', 'success');
                 
                 // --- RE-FETCH DATA UPON SUCCESSFUL FOLDER CHANGE ---
@@ -121,7 +125,7 @@
                 
                 setTemplates(newTemplates || []);
                 setFolderName(newFName || 'Unknown Folder');
-                setCurrentFolderId(newFId || folderIdInput);
+                setCurrentFolderId(newFId || finalFolderId);
                 setSelectedTemplate('');
                 setShowFolderSettings(false);
             } catch (err) {
@@ -382,9 +386,10 @@
                                             
                                             {showFolderSettings && (
                                                 <div className="mb-4 p-4 bg-black/20 border border-[var(--border-weak)] rounded-lg animate-fade-in shadow-inner">
-                                                    <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">Google Drive Folder ID:</label>
+                                                    <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">Google Drive Folder URL or ID:</label>
                                                     <div className="flex gap-2">
-                                                        <input type="text" placeholder="Paste Folder ID here" className="form-input !py-2 text-sm flex-1 font-mono" value={folderIdInput} onChange={e => setFolderIdInput(e.target.value)} />
+                                                        {/* UPDATED PLACEHOLDER TO REFLECT NEW CAPABILITY */}
+                                                        <input type="text" placeholder="Paste Folder URL or ID here" className="form-input !py-2 text-sm flex-1 font-mono" value={folderIdInput} onChange={e => setFolderIdInput(e.target.value)} />
                                                         <button onClick={handleUpdateFolder} className="btn btn-secondary !py-2">Update</button>
                                                     </div>
                                                 </div>
