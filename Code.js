@@ -147,6 +147,33 @@ function getSendAsAliases() {
   }
 }
 
+function extractInlineImages(htmlContent) {
+  let inlineImages = {};
+  let cidIndex = 0;
+  
+  // Regex to find base64 image sources. Captures the full src attribute, mime type, and data.
+  const regex = /src="(data:(image\/[^;]+);base64,([^"]+))"/g;
+  
+  let modifiedHtml = htmlContent.replace(regex, function(fullMatch, fullDataUri, mimeType, base64Data) {
+    let cid = "img_" + cidIndex++;
+    try {
+      // Convert the massive text string back into a binary file (Blob)
+      let blob = Utilities.newBlob(Utilities.base64Decode(base64Data), mimeType, cid);
+      inlineImages[cid] = blob;
+      // Replace the massive text in the HTML with a lightweight Content-ID reference
+      return `src="cid:${cid}"`;
+    } catch(e) {
+      Logger.log("Failed decoding base64 image: " + e.message);
+      return fullMatch; // Fallback to original if it fails
+    }
+  });
+  
+  return {
+    html: modifiedHtml,
+    images: inlineImages
+  };
+}
+
 function sendEmailsWithSheet(sheetId, templateId, subject, tabName, fromEmail, fromName){
   try {
     const spreadsheet = SpreadsheetApp.openById(sheetId); // Open spreadsheet once
@@ -203,16 +230,21 @@ function sendEmailsWithSheet(sheetId, templateId, subject, tabName, fromEmail, f
     const templateName = DriveApp.getFileById(templateId).getName();
 
     allData.forEach((row, rowIndex) => {
+      let recipient = {};
+      headers.forEach((header, index) => {
+        recipient[header] = row[index];
+      });
+
+      // --- Skip completely empty rows or missing emails ---
+      if (!recipient["Email"] || recipient["Email"].toString().trim() === "") {
+        return; 
+      }
+
       // Check if already processed (has a timestamp)
       if (row[timestampColumnIndex]) {
         emailsSkipped++;
         return;
       }
-
-      let recipient = {};
-      headers.forEach((header, index) => {
-        recipient[header] = row[index];
-      });
 
       if (recipient['Name']) {
         recipient['Name'] = formatName(recipient['Name']);
@@ -238,32 +270,30 @@ function sendEmailsWithSheet(sheetId, templateId, subject, tabName, fromEmail, f
         attachmentIdArray.forEach(id => {
           try {
             const file = DriveApp.getFileById(extractId(id));
-            // It's generally safer to get the original MIME type using getBlob()
             attachments.push(file.getBlob());
             Logger.log(`Added attachment: ${file.getName()} (ID: ${id})`);
           } catch (attachmentError) {
             Logger.log(`Warning: Could not add attachment (ID: ${id}) for email to ${recipient["Email"] || 'unknown'}. Error: ${attachmentError.message}`);
-            // Need to decide if we want to abort sending this specific email or just skip the attachment.
-            // For now, we'll just log and continue without the problematic attachment.
           }
         });
       }
       // --- END NEW ATTACHMENT LOGIC ---
-
+      const processedEmail = extractInlineImages(emailContent);
+      
       try {
         const mailOptions = {
           cc: recipient["CC"] || "",
-          htmlBody: emailContent,
+          htmlBody: processedEmail.html,
           attachments: attachments,
+          inlineImages: processedEmail.images,
           from: fromEmail, 
           name: fromName
         };
-        
-        if (fromName) {
-          mailOptions.name = fromName;
-        }
 
-        GmailApp.sendEmail(recipient["Email"], personalizedSubject, emailContent, mailOptions); // Changed to use mailOptions
+        const plainTextFallback = "Please view this email in an HTML-compatible client.";
+
+        // Send the email using the lightweight fallback and the robust mailOptions
+        GmailApp.sendEmail(recipient["Email"], personalizedSubject, plainTextFallback, mailOptions);
 
         timestampUpdates[rowIndex] = new Date();
         templateUpdates[rowIndex] = templateName;
@@ -375,26 +405,38 @@ function getGmailSignature(fromEmail) {
   }
 }
 
-function generateEmailPreview(sheetId, templateId, tabName) {
+function generateEmailPreview(sheetId, templateId, tabName, rowIndex = 0) {
   try {
-    var templateText = getTemplateContent(templateId);
-    const recipientData = getSheetData(sheetId, tabName); // getSheetData already optimized
-    const firstRecipient = recipientData[0]; // Assuming at least one row exists for preview
-
-    if (!firstRecipient) {
+    let templateText = getTemplateContent(templateId);
+    const recipientData = getSheetData(sheetId, tabName); 
+    
+    const totalRows = recipientData.length;
+    if (totalRows === 0) {
         throw new Error("No data found in the sheet for preview.");
     }
 
-    if (firstRecipient['Name']) {
-      firstRecipient['Name'] = formatName(firstRecipient['Name']);
+    // Ensure the index doesn't go out of bounds
+    const safeIndex = Math.max(0, Math.min(rowIndex, totalRows - 1));
+    const recipient = recipientData[safeIndex];
+
+    if (recipient['Name']) {
+      recipient['Name'] = formatName(recipient['Name']);
     }
-    Object.keys(firstRecipient).forEach(key => {
-      templateText = templateText.replace(new RegExp(`{{${key}}}`, 'g'), firstRecipient[key] || '');
+    
+    Object.keys(recipient).forEach(key => {
+      templateText = templateText.replace(new RegExp(`{{${key}}}`, 'g'), recipient[key] || '');
     });
-    return templateText;
+    
+    return {
+      html: templateText,
+      totalRows: totalRows,
+      toEmail: recipient['Email'] || 'Unknown',
+      currentRow: safeIndex + 1
+    };
+    
   } catch (error) {
     Logger.log(`Error generating email preview: ${error.message}\nStack: ${error.stack}`);
-    return "Error generating preview.";
+    throw new Error("Error generating preview.");
   }
 }
 
