@@ -24,6 +24,8 @@
         const [selectedAlias, setSelectedAlias] = useState('');
         const [selectedTemplate, setSelectedTemplate] = useState('');
         const [showFolderSettings, setShowFolderSettings] = useState(false);
+        const [folderName, setFolderName] = useState('');
+        const [currentFolderId, setCurrentFolderId] = useState('');
         const [folderIdInput, setFolderIdInput] = useState('');
         
         // Audience State
@@ -64,17 +66,24 @@
         useEffect(() => {
             const initApp = async () => {
                 try {
-                    const [email, totalCount, aliasesData, templatesData] = await Promise.all([
+                    const [email, totalCount, aliasesData, templatesData, fName, fId] = await Promise.all([
                         runGas('getUserEmail'),
                         runGas('getTotalSentEmailCount'),
                         runGas('getSendAsAliases'),
-                        runGas('getTemplates')
+                        runGas('getTemplates'),
+                        runGas('getTemplateFolderName'),
+                        runGas('getTemplateFolderId')
                     ]);
                     
                     setGlobalData({ userEmail: email, totalSent: totalCount });
                     setAliases(aliasesData || []);
                     setTemplates(templatesData || []);
                     
+                    // Set Folder Data
+                    setFolderName(fName || 'Unknown Folder');
+                    setCurrentFolderId(fId || '');
+                    setFolderIdInput(fId || ''); // Pre-fill the input field
+
                     if (aliasesData && aliasesData.length > 0) {
                         setSelectedAlias(aliasesData[0].email);
                     }
@@ -102,8 +111,17 @@
             try {
                 await runGas('setTemplateFolderId', folderIdInput);
                 addToast('Source folder updated!', 'success');
-                const templatesData = await runGas('getTemplates');
-                setTemplates(templatesData || []);
+                
+                // --- RE-FETCH DATA UPON SUCCESSFUL FOLDER CHANGE ---
+                const [newTemplates, newFName, newFId] = await Promise.all([
+                    runGas('getTemplates'),
+                    runGas('getTemplateFolderName'),
+                    runGas('getTemplateFolderId')
+                ]);
+                
+                setTemplates(newTemplates || []);
+                setFolderName(newFName || 'Unknown Folder');
+                setCurrentFolderId(newFId || folderIdInput);
                 setSelectedTemplate('');
                 setShowFolderSettings(false);
             } catch (err) {
@@ -307,19 +325,36 @@
                                                 {aliases.map(a => <option key={a.email} value={a.email}>{a.displayName} ({a.email})</option>)}
                                             </select>
                                         </div>
+                                        
                                         <div className="app-card">
-                                            <div className="flex justify-between items-end mb-2">
-                                                <label className="block text-sm font-semibold text-[var(--text-secondary)]">Email Template:</label>
-                                                <button onClick={() => setShowFolderSettings(!showFolderSettings)} className="text-xs text-[var(--brand-primary)] hover:text-white transition-colors font-semibold flex items-center gap-1">
-                                                    <i className="fa-solid fa-folder-tree"></i> Change Source Folder
+                                            {/* --- UPDATED TEMPLATE HEADER WITH DRIVE PILL --- */}
+                                            <div className="flex justify-between items-start mb-4">
+                                                <div>
+                                                    <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-1">Email Template</label>
+                                                    
+                                                    {/* Elegant Google Drive Pill */}
+                                                    <div className="flex items-center gap-2 mt-1.5">
+                                                        <span className="text-xs text-[var(--text-disabled)] uppercase tracking-wider font-semibold">Source</span>
+                                                        <a href={`https://drive.google.com/drive/folders/${currentFolderId}`} target="_blank" rel="noreferrer" 
+                                                           className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-black/20 border border-[var(--border-weak)] text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10 hover:border-[var(--brand-primary)] transition-all text-xs max-w-[200px]"
+                                                           title="Open in Google Drive">
+                                                            <i className="fa-solid fa-folder-open"></i> 
+                                                            <span className="truncate font-medium">{folderName || 'Loading...'}</span>
+                                                        </a>
+                                                    </div>
+                                                </div>
+                                                
+                                                {/* More subtle toggle button */}
+                                                <button onClick={() => setShowFolderSettings(!showFolderSettings)} className="text-xs text-[var(--text-secondary)] hover:text-white transition-colors font-medium flex items-center gap-1.5 bg-transparent border border-[var(--border-moderate)] hover:border-[var(--brand-primary)] px-2 py-1 rounded">
+                                                    <i className="fa-solid fa-pen-to-square"></i> Edit
                                                 </button>
                                             </div>
                                             
                                             {showFolderSettings && (
-                                                <div className="mb-4 p-4 bg-black/20 border border-[var(--border-weak)] rounded-lg animate-fade-in">
-                                                    <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-1">Google Drive Folder ID:</label>
+                                                <div className="mb-4 p-4 bg-black/20 border border-[var(--border-weak)] rounded-lg animate-fade-in shadow-inner">
+                                                    <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">Google Drive Folder ID:</label>
                                                     <div className="flex gap-2">
-                                                        <input type="text" placeholder="Paste Folder ID here" className="form-input !py-2 text-sm flex-1" value={folderIdInput} onChange={e => setFolderIdInput(e.target.value)} />
+                                                        <input type="text" placeholder="Paste Folder ID here" className="form-input !py-2 text-sm flex-1 font-mono" value={folderIdInput} onChange={e => setFolderIdInput(e.target.value)} />
                                                         <button onClick={handleUpdateFolder} className="btn btn-secondary !py-2">Update</button>
                                                     </div>
                                                 </div>
