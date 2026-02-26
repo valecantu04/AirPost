@@ -147,6 +147,33 @@ function getSendAsAliases() {
   }
 }
 
+function extractInlineImages(htmlContent) {
+  let inlineImages = {};
+  let cidIndex = 0;
+  
+  // Regex to find base64 image sources. Captures the full src attribute, mime type, and data.
+  const regex = /src="(data:(image\/[^;]+);base64,([^"]+))"/g;
+  
+  let modifiedHtml = htmlContent.replace(regex, function(fullMatch, fullDataUri, mimeType, base64Data) {
+    let cid = "img_" + cidIndex++;
+    try {
+      // Convert the massive text string back into a binary file (Blob)
+      let blob = Utilities.newBlob(Utilities.base64Decode(base64Data), mimeType, cid);
+      inlineImages[cid] = blob;
+      // Replace the massive text in the HTML with a lightweight Content-ID reference
+      return `src="cid:${cid}"`;
+    } catch(e) {
+      Logger.log("Failed decoding base64 image: " + e.message);
+      return fullMatch; // Fallback to original if it fails
+    }
+  });
+  
+  return {
+    html: modifiedHtml,
+    images: inlineImages
+  };
+}
+
 function sendEmailsWithSheet(sheetId, templateId, subject, tabName, fromEmail, fromName){
   try {
     const spreadsheet = SpreadsheetApp.openById(sheetId); // Open spreadsheet once
@@ -243,32 +270,30 @@ function sendEmailsWithSheet(sheetId, templateId, subject, tabName, fromEmail, f
         attachmentIdArray.forEach(id => {
           try {
             const file = DriveApp.getFileById(extractId(id));
-            // It's generally safer to get the original MIME type using getBlob()
             attachments.push(file.getBlob());
             Logger.log(`Added attachment: ${file.getName()} (ID: ${id})`);
           } catch (attachmentError) {
             Logger.log(`Warning: Could not add attachment (ID: ${id}) for email to ${recipient["Email"] || 'unknown'}. Error: ${attachmentError.message}`);
-            // Need to decide if we want to abort sending this specific email or just skip the attachment.
-            // For now, we'll just log and continue without the problematic attachment.
           }
         });
       }
       // --- END NEW ATTACHMENT LOGIC ---
-
+      const processedEmail = extractInlineImages(emailContent);
+      
       try {
         const mailOptions = {
           cc: recipient["CC"] || "",
-          htmlBody: emailContent,
+          htmlBody: processedEmail.html,
           attachments: attachments,
+          inlineImages: processedEmail.images,
           from: fromEmail, 
           name: fromName
         };
-        
-        if (fromName) {
-          mailOptions.name = fromName;
-        }
 
-        GmailApp.sendEmail(recipient["Email"], personalizedSubject, emailContent, mailOptions); // Changed to use mailOptions
+        const plainTextFallback = "Please view this email in an HTML-compatible client.";
+
+        // Send the email using the lightweight fallback and the robust mailOptions
+        GmailApp.sendEmail(recipient["Email"], personalizedSubject, plainTextFallback, mailOptions);
 
         timestampUpdates[rowIndex] = new Date();
         templateUpdates[rowIndex] = templateName;
