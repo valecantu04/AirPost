@@ -1,633 +1,412 @@
-<script>
-//global variables to track sheet validation status
-let isSheetValidated = false;
-let currentSheetId = ''; // To store the last validated sheet ID
-let currentTabName = ''; // To store the last validated tab name
-let currentTemplateId = ''; // To store the last selected template ID
+<script type="text/babel">
+    const { useState, useEffect, useMemo, useCallback } = React;
 
-document.addEventListener("DOMContentLoaded", initializeUI);
+    // --- UTILITY: Wrap google.script.run in a Promise ---
+    const runGas = (functionName, ...args) => {
+        return new Promise((resolve, reject) => {
+            google.script.run
+                .withSuccessHandler(resolve)
+                .withFailureHandler(reject)
+                [functionName](...args);
+        });
+    };
 
-async function initializeUI() {
-    showLoading(true);
-    try {
-        // Fetch all initial data concurrently
-        await Promise.all([
-            fetchUserEmail(),
-            fetchTemplateFolderId(), // This also implicitly updates folderLink href
-            fetchTemplateFolderName(),
-            loadTemplates(),
-            //fetchSubjectLine(),
-            fetchSendAsAliases(),
-            fetchAndDisplayEmailCount()
-        ]);
-    } catch (error) {
-        handleError(error, "Failed to load UI data.");
-    } finally { // Ensure loading is hidden even if there's an error during initialization
-        showLoading(false);
-    }
-}
+    const AirPostApp = () => {
+        // --- GLOBAL STATE ---
+        const [step, setStep] = useState(1);
+        const [isInitializing, setIsInitializing] = useState(true);
+        const [globalData, setGlobalData] = useState({ userEmail: '', totalSent: 0 });
+        const [toasts, setToasts] = useState([]);
 
-function showToast(message, type = "success") {
-    let toast = document.createElement("div");
-    toast.className = `toast ${type}`;
-    toast.innerHTML = `<i class="${type === 'success' ? 'fa fa-check-circle' : 'fa fa-exclamation-triangle'}"></i> ${message}`;
-    document.body.appendChild(toast);
-    setTimeout(() => toast.classList.add("fade"), 100);
-    setTimeout(() => toast.remove(), 4000);
-}
+        // Form State
+        const [aliases, setAliases] = useState([]);
+        const [templates, setTemplates] = useState([]);
+        const [selectedAlias, setSelectedAlias] = useState('');
+        const [selectedTemplate, setSelectedTemplate] = useState('');
+        
+        // Audience State
+        const [sheetUrl, setSheetUrl] = useState('');
+        const [sheetTabs, setSheetTabs] = useState([]);
+        const [selectedTab, setSelectedTab] = useState('');
+        const [validationState, setValidationState] = useState({ status: 'idle', details: null });
+        const [isValidating, setIsValidating] = useState(false);
 
-function extractId(link) {
-    let match = link.match(/[-\w]{25,}/);
-    return match ? match[0] : null;
-}
+        // Preview & Send State
+        const [subjectLine, setSubjectLine] = useState('');
+        const [previewHtml, setPreviewHtml] = useState(null);
+        const [isSending, setIsSending] = useState(false);
 
-function fetchUserEmail() {
-    google.script.run.withSuccessHandler(displayUserEmail).getUserEmail();
-}
-
-function displayUserEmail(email) {
-    document.getElementById("userEmailDisplay").textContent = `Logged in as: ${email}`;
-}
-
-function fetchSendAsAliases() {
-    google.script.run
-        .withSuccessHandler(aliases => {
-            const sendAsSelect = document.getElementById("sendAsSelect");
-            sendAsSelect.innerHTML = ""; // Clear existing options
-
-            if (!aliases || aliases.length === 0) {
-                const option = document.createElement("option");
-                option.value = "";
-                option.textContent = "No 'Send As' addresses found.";
-                sendAsSelect.appendChild(option);
-                // Optionally disable sending if no addresses are found
-                // document.getElementById("sendEmailsButton").disabled = true;
-                return;
-            }
-
-            aliases.forEach(alias => {
-                const option = document.createElement("option");
-                option.value = alias.email;
-                option.textContent = alias.displayName || alias.email;
-                option.dataset.displayName = alias.displayName || alias.email;
-                if (alias.isPrimary) {
-                    option.selected = true; // Select the primary email by default
+        // --- INITIALIZATION ---
+        useEffect(() => {
+            const initApp = async () => {
+                try {
+                    const [email, totalCount, aliasesData, templatesData] = await Promise.all([
+                        runGas('getUserEmail'),
+                        runGas('getTotalSentEmailCount'),
+                        runGas('getSendAsAliases'),
+                        runGas('getTemplates')
+                    ]);
+                    
+                    setGlobalData({ userEmail: email, totalSent: totalCount });
+                    setAliases(aliasesData || []);
+                    setTemplates(templatesData || []);
+                    
+                    if (aliasesData && aliasesData.length > 0) {
+                        setSelectedAlias(aliasesData[0].email);
+                    }
+                } catch (error) {
+                    addToast('Failed to load application data', 'error');
+                } finally {
+                    setIsInitializing(false);
                 }
-                sendAsSelect.appendChild(option);
-            });
-            // Ensure a default is selected if no primary was found or if aliases.length > 0
-            if (sendAsSelect.selectedIndex === -1 && aliases.length > 0) {
-                sendAsSelect.selectedIndex = 0;
-            }
-        })
-        .withFailureHandler(error => {
-            handleError(error, "Failed to load 'Send As' email addresses.");
-            document.getElementById("sendAsSelect").innerHTML = "<option value=''>Error loading addresses</option>";
-        })
-        .getSendAsAliases(); // Call the new server-side function
-}
+            };
+            initApp();
+        }, []);
 
-function loadTemplates() {
-    showLoading(true); // Ensure loading is shown for this specific operation
-    google.script.run
-        .withSuccessHandler(templates => {
-            if (!templates || !Array.isArray(templates)) {
-                handleError("Invalid response from server", "Failed to load templates.");
+        // --- TOAST SYSTEM ---
+        const addToast = (message, type = 'success') => {
+            const id = Date.now();
+            setToasts(prev => [...prev, { id, message, type }]);
+            setTimeout(() => {
+                setToasts(prev => prev.filter(t => t.id !== id));
+            }, 4000);
+        };
+
+        // --- STEP 1 LOGIC ---
+        const handleStep1Next = () => {
+            if (!selectedAlias || !selectedTemplate) {
+                addToast('Please select a sender and template.', 'error');
                 return;
             }
-            displayTemplates(templates);
-            // After loading templates, update currentTemplateId
-            currentTemplateId = document.getElementById("templateSelect").value;
-            // Add event listener for template selection change
-            document.getElementById("templateSelect").addEventListener('change', () => {
-                currentTemplateId = document.getElementById("templateSelect").value;
-                // Reset validation status if template changes
-                isSheetValidated = false;
-                resetValidationDisplay();
-                document.getElementById("emailPreview").innerHTML = "";
-            });
-            showLoading(false); // Hide loading on success
-        })
-        .withFailureHandler(error => {
-            handleError(error, "Failed to load templates.");
-            showLoading(false); // Hide loading on failure
-        })
-        .getTemplates();
-}
+            setStep(2);
+        };
 
-function displayTemplates(templates) {
-    let dropdown = document.getElementById("templateSelect");
-    dropdown.innerHTML = "";
-    if (!templates || templates.length === 0) {
-        let option = document.createElement("option");
-        option.value = "";
-        option.textContent = "No templates available";
-        dropdown.appendChild(option);
-        return;
-    }
-    templates.forEach(template => {
-        let option = document.createElement("option");
-        option.value = template.id;
-        option.textContent = template.name;
-        dropdown.appendChild(option);
-    });
-}
+        // --- STEP 2 LOGIC ---
+        const handleExtractTabs = async () => {
+            if (!sheetUrl) return;
+            const sheetIdMatch = sheetUrl.match(/[-\w]{25,}/);
+            if (!sheetIdMatch) {
+                addToast('Invalid Google Sheet URL', 'error');
+                return;
+            }
+            try {
+                const tabs = await runGas('getSheetTabs', sheetIdMatch[0]);
+                setSheetTabs(tabs);
+                if (tabs.length > 0) setSelectedTab(tabs[0]);
+            } catch (err) {
+                addToast('Failed to load tabs. Ensure you have access to the Sheet.', 'error');
+            }
+        };
 
-function updateTemplateSource() {
-    let link = document.getElementById("templateSource").value.trim();
-    let newFolderId = extractId(link);
+        // Auto-fetch tabs when URL changes
+        useEffect(() => {
+            setValidationState({ status: 'idle', details: null }); // Reset validation on input change
+            const delayDebounceFn = setTimeout(() => {
+                handleExtractTabs();
+            }, 1000);
+            return () => clearTimeout(delayDebounceFn);
+        }, [sheetUrl]);
 
-    const validationMessage = document.getElementById("templateValidationMessage");
-    const validationBanner = document.getElementById("templateValidate");
-
-    if (!newFolderId || !/^[a-zA-Z0-9_-]+$/.test(newFolderId)) { // Client-side validation added here
-        validationBanner.className = "alert bad";
-        validationMessage.innerHTML = `<i class='fa-solid fa-circle-xmark' style='color:var(--status-baseCritical)'></i> Invalid folder ID.`;
-        showToast("Template source update failed", "error");
-        // No need to call handleError or showLoading(false) again as it's not a server error
-        return;
-    }
-    showLoading(true);
-    google.script.run
-        .withSuccessHandler(() => {
-            validationBanner.className = "alert good";
-            validationMessage.innerHTML = `<i class='fa-solid fa-circle-check' style='color:var(--status-baseSuccess)'></i> Template source folder has been updated.`;
-            showToast("Template source updated!");
-            loadTemplates(); // Reload templates after folder change
-            fetchTemplateFolderName(); // Update displayed folder name
-            fetchTemplateFolderId(); // Update the folder link href
-            showLoading(false);
-            // Reset sheet validation status as template source changed
-            isSheetValidated = false;
-            resetValidationDisplay();
-        })
-        .withFailureHandler(error => {
-            validationBanner.className = "alert bad";
-            validationMessage.innerHTML = `<i class='fa-solid fa-circle-xmark' style='color:var(--status-baseCritical)'></i> Failed to update template source: ${error.message}`; // Display server error message
-            showToast("Template source update failed", "error");
-            handleError(error, "Failed to update template source.");
-            showLoading(false);
-        })
-        .setTemplateFolderId(newFolderId);
-}
-
-function fetchTemplateFolderName() {
-    google.script.run
-        .withSuccessHandler(folderName => {
-            document.getElementById("templateFolderName").textContent = folderName;
-        })
-        .withFailureHandler(() => {
-            document.getElementById("templateFolderName").textContent = "⚠️ Failed to load folder name";
-        })
-        .getTemplateFolderName();
-}
-
-function fetchTemplateFolderId() {
-    google.script.run
-        .withSuccessHandler(folderId => {
-            let newLink = "https://drive.google.com/drive/folders/" + folderId;
-            document.getElementById("folderLink").href = newLink;
-        })
-        .withFailureHandler(() => {
-            let newLink = "https://drive.google.com/drive/folders/#"; // Fallback to a non-functional link
-            document.getElementById("folderLink").href = newLink;
-        })
-        .getTemplateFolderId();
-}
-
-function fetchAndPopulateTabs(sheetId) {
-    const tabSelect = document.getElementById("tabSelect");
-    const previouslySelected = tabSelect.value;
-
-    return new Promise((resolve, reject) => {
-        google.script.run.withSuccessHandler(tabNames => {
-            tabSelect.innerHTML = "";
-            if (tabNames.length === 0) {
-                const option = document.createElement("option");
-                option.value = "";
-                option.textContent = "No tabs found";
-                tabSelect.appendChild(option);
-            } else {
-                tabNames.forEach(name => {
-                    const option = document.createElement("option");
-                    option.value = name;
-                    option.textContent = name;
-                    tabSelect.appendChild(option);
+        const handleValidateSheet = async () => {
+            if (!sheetUrl || !selectedTab) return addToast('URL and Tab required.', 'error');
+            
+            setIsValidating(true);
+            try {
+                const sheetId = sheetUrl.match(/[-\w]{25,}/)[0];
+                const result = await runGas('validateSheetColumns', sheetId, selectedTemplate, selectedTab);
+                
+                setValidationState({ 
+                    status: result.valid ? 'success' : 'error', 
+                    details: result 
                 });
 
-                if (tabNames.includes(previouslySelected)) {
-                    tabSelect.value = previouslySelected;
-                } else if (tabNames.length > 0) {
-                    tabSelect.value = tabNames[0];
-                }
+                if (result.valid) addToast('Sheet validated successfully!', 'success');
+                else addToast('Missing required columns in sheet.', 'error');
+            } catch (err) {
+                addToast(err.message, 'error');
+            } finally {
+                setIsValidating(false);
             }
-            // Add event listener for tab selection change
-            tabSelect.addEventListener('change', () => {
-                currentTabName = tabSelect.value;
-                // Reset validation status if tab changes
-                isSheetValidated = false;
-                resetValidationDisplay();
-                document.getElementById("emailPreview").innerHTML = "";
-            });
-            resolve();
-        }).withFailureHandler(error => {
-            reject(error);
-        }).getSheetTabs(sheetId);
-    });
-}
+        };
 
-async function validateSheet() {
-    const templateId = document.getElementById("templateSelect").value;
-    const sheetLinkInput = document.getElementById("sheetId"); // Get the input element
-    const link = sheetLinkInput.value.trim();
-    const sheetId = extractId(link);
+        // --- STEP 3 LOGIC ---
+        const handleGeneratePreview = async () => {
+            if (!subjectLine) {
+                addToast('Please enter a subject line.', 'error');
+                return;
+            }
+            setPreviewHtml('<div class="flex items-center justify-center p-8"><i class="fa-solid fa-circle-notch fa-spin text-2xl text-slate-400"></i></div>');
+            try {
+                const sheetId = sheetUrl.match(/[-\w]{25,}/)[0];
+                const html = await runGas('generateEmailPreview', sheetId, selectedTemplate, selectedTab);
+                setPreviewHtml(html);
+            } catch (err) {
+                setPreviewHtml('<div class="text-red-500 p-4">Error generating preview.</div>');
+                addToast('Failed to generate preview', 'error');
+            }
+        };
 
-    // Update global sheet ID and template ID for consistent checks
-    currentSheetId = sheetId;
-    currentTemplateId = templateId;
+        const handleSendEmails = async () => {
+            if (!subjectLine) return addToast('Subject is required.', 'error');
+            
+            if (!confirm("Are you sure you want to send emails? This cannot be undone.")) return;
 
-    const validationMessage = document.getElementById("validationMessage");
-    const validationBanner = document.getElementById("sheetValidate");
-    validationBanner.className = "alert"; // Reset alert state
-    resetValidationDisplay(); // Clear previous validation details
+            setIsSending(true);
+            try {
+                const sheetId = sheetUrl.match(/[-\w]{25,}/)[0];
+                const selectedAliasObj = aliases.find(a => a.email === selectedAlias);
+                
+                const res = await runGas('sendEmailsWithSheet', sheetId, selectedTemplate, subjectLine, selectedTab, selectedAlias, selectedAliasObj.displayName);
+                
+                if (res.success) {
+                    addToast(res.message, 'success');
+                    runGas('getTotalSentEmailCount').then(count => setGlobalData(prev => ({...prev, totalSent: count})));
+                } else {
+                    addToast('Some emails failed to send.', 'error');
+                }
+            } catch (err) {
+                addToast(err.message, 'error');
+            } finally {
+                setIsSending(false);
+            }
+        };
 
-    if (!templateId) { // Check template first
-        validationBanner.className = "alert bad";
-        validationMessage.innerHTML = `<i class='fa-solid fa-circle-xmark' style='color:var(--status-baseCritical)'></i> Please select a template.`;
-        showToast("Validation failed: Select template", "error");
-        isSheetValidated = false; // Important: Set validation to false
-        return;
-    }
+        // --- RENDER HELPERS ---
+        if (isInitializing) return (
+            <div className="flex h-screen w-screen items-center justify-center bg-[#05161F]">
+                <div className="flex flex-col items-center gap-4">
+                    <i className="fa-solid fa-paper-plane text-4xl text-[#22d3ee] animate-pulse"></i>
+                    <p className="text-white text-lg font-medium">Loading AirPost Environment...</p>
+                </div>
+            </div>
+        );
 
-    if (!sheetId || !/^[a-zA-Z0-9_-]+$/.test(sheetId)) { // Client-side validation for sheet ID
-        validationBanner.className = "alert bad";
-        validationMessage.innerHTML = `<i class='fa-solid fa-circle-xmark' style='color:var(--status-baseCritical)'></i> Invalid Google Sheet link/ID.`;
-        showToast("Validation failed: Invalid Sheet ID", "error");
-        isSheetValidated = false; // Important: Set validation to false
-        return;
-    }
+        const getTemplateName = () => templates.find(t => t.id === selectedTemplate)?.name || 'Pending...';
 
-    showLoading(true);
-    try {
-        await fetchAndPopulateTabs(sheetId); // This call can reject if sheetId is bad
-        currentTabName = document.getElementById("tabSelect").value; // Set currentTabName after populating
-    } catch (error) {
-        validationBanner.className = "alert bad";
-        validationMessage.innerHTML = `<i class='fa-solid fa-circle-xmark' style='color:var(--status-baseCritical)'></i> Failed to load sheet tabs: ${error.message}`;
-        showToast("Failed to load sheet tabs", "error");
-        handleError(error, "Failed to load sheet tabs.");
-        showLoading(false);
-        isSheetValidated = false; // Important: Set validation to false
-        return;
-    }
+        return (
+            <div className="flex flex-col h-screen">
+                {/* HEADER */}
+                <header className="border-b border-[var(--border-moderate)] py-3 px-6 mb-4 flex justify-between items-center bg-[var(--surface-primary)]/40 backdrop-blur-md sticky top-0 z-50 shrink-0">
+                    <div className="flex flex-col">
+                        <h1 className="font-bold text-2xl tracking-tight text-white m-0 flex items-center gap-2">
+                            <i className="fa-solid fa-paper-plane text-[var(--brand-primary)]"></i> AirPost
+                        </h1>
+                        <p className="text-sm text-[var(--text-secondary)] m-0 mt-1">Enterprise bulk email merging</p>
+                    </div>
+                    <div className="flex items-center gap-6">
+                        <div className="flex items-center gap-2 text-[var(--text-secondary)] text-sm">
+                            <i className="fa-solid fa-envelope-circle-check text-[var(--brand-primary)]"></i>
+                            Total Sent: <span className="text-white font-bold">{globalData.totalSent.toLocaleString()}</span>
+                        </div>
+                        <div className="flex items-center gap-2 bg-black/20 px-3 py-1.5 rounded-full border border-[var(--border-moderate)] text-sm">
+                            <i className="fa-solid fa-user-circle text-[var(--text-secondary)]"></i>
+                            <span>{globalData.userEmail}</span>
+                        </div>
+                    </div>
+                </header>
 
-    const tabName = document.getElementById("tabSelect").value;
-    if (!tabName) { // Check if a tab was successfully populated/selected
-        validationBanner.className = "alert bad";
-        validationMessage.innerHTML = `<i class='fa-solid fa-circle-xmark' style='color:var(--status-baseCritical)'></i> No sheet tab selected or found.`;
-        showToast("Validation failed: No tab selected", "error");
-        showLoading(false);
-        isSheetValidated = false; // Important: Set validation to false
-        return;
-    }
+                <main className="flex-grow flex flex-col items-center p-4 min-h-0">
+                    
+                    {/* STEPPER */}
+                    <div className="w-full max-w-5xl mb-6 px-4 shrink-0">
+                        <div className="flex items-center justify-between relative">
+                            <div className="absolute left-0 top-1/2 transform -translate-y-1/2 w-full h-1 bg-[var(--border-moderate)] z-0 rounded"></div>
+                            <div className="absolute left-0 top-1/2 transform -translate-y-1/2 h-1 bg-[var(--brand-primary)] z-0 rounded transition-all duration-500 shadow-[0_0_10px_var(--brand-primary)]" 
+                                 style={{ width: step === 1 ? '0%' : step === 2 ? '50%' : '100%' }}></div>
+                            
+                            {[1, 2, 3].map(num => (
+                                <div key={num} className="relative z-10 flex flex-col items-center">
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold transition-colors ${step >= num ? 'text-[#020f24] bg-[var(--brand-primary)] shadow-[0_0_15px_rgba(34,211,238,0.5)] border-2 border-[var(--surface-primary)]' : 'text-[var(--text-secondary)] bg-[var(--surface-primary)] border-2 border-[var(--border-moderate)]'}`}>
+                                        {step > num ? <i className="fa-solid fa-check"></i> : num}
+                                    </div>
+                                    <span className={`mt-2 font-semibold text-sm ${step >= num ? 'text-white' : 'text-[var(--text-disabled)]'}`}>
+                                        {num === 1 ? 'Setup' : num === 2 ? 'Audience' : 'Preview & Send'}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
 
-    google.script.run
-        .withSuccessHandler(displayValidationDetails)
-        .withFailureHandler(error => {
-            validationBanner.className = "alert bad";
-            validationMessage.innerHTML = `<i class='fa-solid fa-circle-xmark' style='color:var(--status-baseCritical)'></i> Error validating sheet: ${error.message}`;
-            showToast("Sheet validation failed", "error");
-            handleError(error, "Failed to validate sheet columns.");
-            showLoading(false);
-            isSheetValidated = false; // Important: Set validation to false
-        })
-        .validateSheetColumns(sheetId, templateId, tabName);
-}
+                    {/* WIZARD LAYOUT */}
+                    <div className="w-full max-w-5xl wizard-layout flex flex-col md:flex-row overflow-hidden flex-grow">
+                        
+                        {/* LEFT COLUMN: Main Forms */}
+                        <div className="flex-grow p-8 flex flex-col overflow-y-auto custom-scrollbar relative">
+                            
+                            {/* STEP 1: SETUP */}
+                            {step === 1 && (
+                                <div className="flex flex-col h-full animate-fade-in">
+                                    <div className="mb-6 border-b border-[var(--border-moderate)] pb-4 shrink-0">
+                                        <h2 className="text-2xl font-bold flex items-center gap-2">
+                                            <i className="fa-solid fa-sliders text-[var(--brand-primary)]"></i> Campaign Setup
+                                        </h2>
+                                        <p className="text-[var(--text-secondary)] mt-1 text-sm">Configure your sender details and select your email template.</p>
+                                    </div>
+                                    <div className="space-y-6 flex-grow overflow-y-auto custom-scrollbar pr-2">
+                                        <div className="app-card">
+                                            <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2">Send emails on behalf of:</label>
+                                            <select className="form-input" value={selectedAlias} onChange={e => setSelectedAlias(e.target.value)}>
+                                                <option value="" disabled>Select an address...</option>
+                                                {aliases.map(a => <option key={a.email} value={a.email}>{a.displayName} ({a.email})</option>)}
+                                            </select>
+                                        </div>
+                                        <div className="app-card">
+                                            <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2">Email Template:</label>
+                                            <select className="form-input" value={selectedTemplate} onChange={e => setSelectedTemplate(e.target.value)}>
+                                                <option value="" disabled>-- Select a Google Doc Template --</option>
+                                                {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div className="mt-6 pt-4 border-t border-[var(--border-moderate)] flex justify-end shrink-0">
+                                        <button onClick={handleStep1Next} className="btn btn-primary">
+                                            Next: Audience <i className="fa-solid fa-arrow-right"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
 
-function displayValidationDetails(result) {
-    showLoading(false);
-    const validationMessage = document.getElementById("validationMessage");
-    const templateHeadersRow = document.getElementById("templateHeadersRow");
-    const sheetHeadersRow = document.getElementById("sheetHeadersRow");
-    const validationBanner = document.getElementById("sheetValidate");
+                            {/* STEP 2: AUDIENCE */}
+                            {step === 2 && (
+                                <div className="flex flex-col h-full animate-fade-in">
+                                    <div className="mb-6 border-b border-[var(--border-moderate)] pb-4 shrink-0">
+                                        <h2 className="text-2xl font-bold flex items-center gap-2">
+                                            <i className="fa-solid fa-users-viewfinder text-[var(--brand-primary)]"></i> Select Audience
+                                        </h2>
+                                        <p className="text-[var(--text-secondary)] mt-1 text-sm">Connect your Google Sheet and validate the required merge fields.</p>
+                                    </div>
+                                    <div className="space-y-6 flex-grow overflow-y-auto custom-scrollbar pr-2">
+                                        <div className="app-card">
+                                            <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2">Google Sheet URL</label>
+                                            <input type="text" placeholder="https://docs.google.com/spreadsheets/d/..." className="form-input mb-4" value={sheetUrl} onChange={e => setSheetUrl(e.target.value)} />
+                                            
+                                            <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2">Select Tab</label>
+                                            <select className="form-input mb-4" disabled={sheetTabs.length === 0} value={selectedTab} onChange={e => setSelectedTab(e.target.value)}>
+                                                {sheetTabs.length === 0 ? <option>Enter URL to load tabs...</option> : sheetTabs.map(t => <option key={t} value={t}>{t}</option>)}
+                                            </select>
 
-    if (result.valid) {
-        validationBanner.className = "alert good";
-        validationMessage.innerHTML = `<i class='fa-solid fa-circle-check' style='color:var(--status-baseSuccess)'></i> Sheet is valid. You can now send emails.`;
-        showToast("Sheet is valid!", "success");
-        isSheetValidated = true; // Set validation to true on success
-    } else {
-        validationBanner.className = "alert bad";
-        validationMessage.innerHTML = `<i class='fa-solid fa-circle-xmark' style='color:var(--status-baseCritical)'></i> Missing columns: ${result.missingKeywords.join(", ")}.`;
-        showToast("Sheet validation failed", "error");
-        isSheetValidated = false; // Set validation to false on failure
-    }
+                                            <button onClick={handleValidateSheet} disabled={!sheetUrl || !selectedTab || isValidating} className="btn btn-secondary w-full">
+                                                {isValidating ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Validating...</> : <><i className="fa-solid fa-bolt"></i> Validate Columns</>}
+                                            </button>
+                                        </div>
 
-    templateHeadersRow.innerHTML = "";
-    sheetHeadersRow.innerHTML = "";
+                                        {validationState.status !== 'idle' && (
+                                            <div className="bg-black/20 rounded-lg border border-[var(--border-weak)] overflow-hidden">
+                                                <div className="bg-[var(--surface-primary)] p-3 border-b border-[var(--border-moderate)] font-semibold text-sm flex justify-between items-center">
+                                                    <span className="text-[var(--text-secondary)]">Validation Results</span>
+                                                    {validationState.status === 'success' 
+                                                        ? <span className="text-xs px-2 py-1 rounded-full bg-[var(--status-success)]/20 border border-[var(--status-success)]/50 text-[var(--status-success)] font-bold"><i className="fa-solid fa-check"></i> Valid</span>
+                                                        : <span className="text-xs px-2 py-1 rounded-full bg-[var(--status-critical)]/20 border border-[var(--status-critical)]/50 text-[var(--status-critical)] font-bold"><i className="fa-solid fa-xmark"></i> Missing Fields</span>
+                                                    }
+                                                </div>
+                                                <div className="p-4">
+                                                    {validationState.status === 'error' && (
+                                                        <p className="text-sm text-[var(--status-critical)] mb-2">Missing from Sheet: {validationState.details.missingKeywords.join(', ')}</p>
+                                                    )}
+                                                    <div className="flex gap-2 flex-wrap">
+                                                        {validationState.details?.templateHeaders?.map(h => (
+                                                            <span key={h} className={`px-2 py-1 rounded text-xs font-mono border ${validationState.details.missingKeywords.includes(h) ? 'bg-[var(--status-critical)]/10 border-[var(--status-critical)]/30 text-[var(--status-critical)]' : 'bg-[var(--status-success)]/10 border-[var(--status-success)]/30 text-[var(--status-success)]'}`}>
+                                                                {h}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="mt-6 pt-4 border-t border-[var(--border-moderate)] flex justify-between items-center shrink-0">
+                                        <button onClick={() => setStep(1)} className="btn btn-secondary border-transparent"><i className="fa-solid fa-arrow-left"></i> Back</button>
+                                        <button onClick={() => setStep(3)} disabled={validationState.status !== 'success'} className="btn btn-primary">Next: Preview <i className="fa-solid fa-arrow-right"></i></button>
+                                    </div>
+                                </div>
+                            )}
 
-    result.templateHeaders.forEach(header => {
-        const div = document.createElement("div");
-        if (result.missingKeywords.includes(header)) { // Use .includes for better readability
-            div.className = "grid-item miss";
-        } else if (result.sheetHeaders.includes(header)) {
-            div.className = "grid-item match";
-        } else {
-            div.className = "grid-item"; // Fallback for headers not in sheet but also not explicitly missing
-        }
-        div.textContent = header;
-        templateHeadersRow.appendChild(div);
-    });
+                            {/* STEP 3: PREVIEW & SEND */}
+                            {step === 3 && (
+                                <div className="flex flex-col h-full animate-fade-in">
+                                    <div className="mb-4 border-b border-[var(--border-moderate)] pb-4 flex justify-between items-end shrink-0">
+                                        <div>
+                                            <h2 className="text-2xl font-bold flex items-center gap-2">
+                                                <i className="fa-solid fa-envelope-open-text text-[var(--brand-primary)]"></i> Final Review
+                                            </h2>
+                                        </div>
+                                        <button onClick={handleSendEmails} disabled={isSending || !subjectLine} className="btn btn-primary !py-3 !px-6 !text-sm shadow-[0_0_15px_rgba(34,211,238,0.3)]">
+                                            {isSending ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Sending...</> : <><i className="fa-solid fa-paper-plane"></i> Dispatch Emails</>}
+                                        </button>
+                                    </div>
 
-    result.sheetHeaders.forEach(header => {
-        const div = document.createElement("div");
-        if (result.templateHeaders.includes(header)) {
-            div.className = "grid-item match";
-        } else {
-            div.className = "grid-item";
-        }
-        div.textContent = header;
-        sheetHeadersRow.appendChild(div);
-    });
-}
+                                    <div className="flex-grow flex flex-col min-h-0">
+                                        <div className="mb-4 flex gap-2">
+                                            <input type="text" placeholder="Email Subject Line (e.g. Hi {{Name}}!)" className="form-input flex-grow" value={subjectLine} onChange={e => setSubjectLine(e.target.value)} />
+                                            <button onClick={handleGeneratePreview} className="btn btn-secondary whitespace-nowrap"><i className="fa-solid fa-eye"></i> Gen Preview</button>
+                                        </div>
 
-// New function to reset validation display
-function resetValidationDisplay() {
-    const validationMessage = document.getElementById("validationMessage");
-    const subjectValidationMessage = document.getElementById("subjectValidationMessage");
-    const templateHeadersRow = document.getElementById("templateHeadersRow");
-    const sheetHeadersRow = document.getElementById("sheetHeadersRow");
-    const sheetValidationBanner = document.getElementById("sheetValidate");
-    const previewValidationBanner = document.getElementById("subjectValidate");
+                                        <div className="flex-grow flex flex-col bg-white rounded-lg overflow-hidden border border-[var(--border-moderate)] text-slate-800 min-h-0">
+                                            <div className="bg-slate-100 border-b border-slate-200 p-2 px-4 flex justify-between items-center text-xs text-slate-500 shrink-0">
+                                                <span>Recipient Preview (Row 1)</span>
+                                            </div>
+                                            <div className="bg-slate-50 border-b border-slate-200 p-4 text-sm shrink-0">
+                                                <div className="flex mb-1"><span className="w-16 text-slate-500">From:</span> <span className="font-semibold">{selectedAlias}</span></div>
+                                                <div className="flex"><span className="w-16 text-slate-500">Subject:</span> <span className="font-bold">{subjectLine || <span className="text-slate-400 italic">No subject</span>}</span></div>
+                                            </div>
+                                            <div className="p-6 overflow-y-auto custom-scrollbar flex-grow bg-white text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: previewHtml || '<p class="text-slate-400 italic text-center mt-10">Click "Gen Preview" to render template.</p>' }}>
+                                            </div>
+                                        </div>
+                                    </div>
 
-    sheetValidationBanner.className = "alert";
-    previewValidationBanner.className = "alert";
-    validationMessage.innerHTML = "";    
-    subjectValidationMessage.innerHTML = "";
-    templateHeadersRow.innerHTML = "";
-    sheetHeadersRow.innerHTML = "";
-}
+                                    <div className="mt-4 pt-4 border-t border-[var(--border-moderate)] flex justify-start shrink-0">
+                                        <button onClick={() => setStep(2)} className="btn btn-secondary border-transparent"><i className="fa-solid fa-arrow-left"></i> Back</button>
+                                    </div>
+                                </div>
+                            )}
 
+                        </div>
 
-function previewEmail() {
-    const templateId = document.getElementById("templateSelect").value;
-    const sheetLinkInput = document.getElementById("sheetId");
-    const sheetId = extractId(sheetLinkInput.value.trim());
-    const tabName = document.getElementById("tabSelect").value;
-    const subjectLineInput = document.getElementById("emailSubject"); // Get the input for subject
-    let currentSubjectLine = subjectLineInput.value.trim(); // Get the subject from the input field
+                        {/* RIGHT COLUMN: Summary Sidebar */}
+                        <div className="w-full md:w-80 bg-black/20 border-l border-[var(--border-moderate)] p-6 flex flex-col shadow-inner shrink-0">
+                            <h3 className="text-sm font-bold text-[var(--text-secondary)] uppercase tracking-[0.05em] mb-6 flex items-center gap-2">
+                                <i className="fa-solid fa-list-check"></i> Summary
+                            </h3>
 
-    const validationMessage = document.getElementById("subjectValidationMessage");
-    const validationBanner = document.getElementById("subjectValidate");
-    validationBanner.className = "alert"; // Reset alert state
+                            <div className="flex flex-col flex-grow">
+                                <div className="summary-item">
+                                    <span className="summary-label">Sender</span>
+                                    {selectedAlias ? <div className="summary-value"><i className="fa-solid fa-circle-check text-[var(--brand-primary)]"></i> <span className="truncate">{selectedAlias}</span></div> : <div className="summary-value pending">Pending...</div>}
+                                </div>
+                                <div className="summary-item">
+                                    <span className="summary-label">Template</span>
+                                    {selectedTemplate ? <div className="summary-value"><i className="fa-solid fa-file-lines text-[var(--brand-primary)]"></i> <span className="truncate">{getTemplateName()}</span></div> : <div className="summary-value pending">Pending...</div>}
+                                </div>
+                                <div className="summary-item">
+                                    <span className="summary-label">Audience Data</span>
+                                    {validationState.status === 'success' ? <div className="summary-value"><i className="fa-solid fa-table text-[var(--status-success)]"></i> <span className="text-[var(--status-success)]">Sheet Validated</span></div> : <div className="summary-value pending">Pending...</div>}
+                                </div>
+                                <div className="summary-item">
+                                    <span className="summary-label">Subject Line</span>
+                                    {subjectLine ? <div className="summary-value"><i className="fa-solid fa-pen text-[var(--brand-primary)]"></i> <span className="truncate">{subjectLine}</span></div> : <div className="summary-value pending">Pending...</div>}
+                                </div>
+                            </div>
+                        </div>
 
-    // --- IMPORTANT: Add validation checks here ---
-    if (!isSheetValidated || currentSheetId !== sheetId || currentTabName !== tabName || currentTemplateId !== templateId) {
-        validationBanner.className = "alert bad";
-        validationMessage.innerHTML = `<i class='fa-solid fa-circle-xmark' style='color:var(--status-baseCritical)'></i> Please validate your sheet and template first.`;
-        showToast("Preview generation failed: Sheet not validated or selection changed.", "error");
-        return;
-    }
-    // --- End important validation checks ---
+                    </div>
+                </main>
 
-    if (!currentSubjectLine) { // Check if subject line is empty for preview
-        validationBanner.className = "alert bad";
-        validationMessage.innerHTML = `<i class='fa-solid fa-circle-xmark' style='color:var(--status-baseCritical)'></i> Please enter a subject line for the preview.`;
-        showToast("Preview generation failed: Empty Subject", "error");
-        return;
-    }
+                {/* TOAST SYSTEM RENDERING */}
+                <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-[9999] flex flex-col gap-2 pointer-events-none">
+                    {toasts.map(toast => (
+                        <div key={toast.id} className={`toast-enter pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-lg shadow-2xl border-l-4 ${toast.type === 'success' ? 'border-[var(--status-success)]' : 'border-[var(--status-critical)]'} bg-[var(--surface-primary)] text-white min-w-[300px] border border-[var(--border-moderate)]`}>
+                            <i className={`fa-solid ${toast.type === 'success' ? 'fa-circle-check text-[var(--status-success)]' : 'fa-triangle-exclamation text-[var(--status-critical)]'} text-xl`}></i>
+                            <div className="flex flex-col">
+                                <span className="font-bold text-sm tracking-wide uppercase">{toast.type === 'success' ? 'Success' : 'Notice'}</span>
+                                <span className="text-xs text-[var(--text-secondary)] mt-0.5">{toast.message}</span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    };
 
-    showLoading(true);
-    google.script.run
-        .withSuccessHandler(emailContent => {
-            displayPreview(emailContent);
-            showLoading(false); // Hide loading after both content and subject are set            
-        })
-        .withFailureHandler(error => {
-            handleError(error, "Failed to generate email preview.");
-            showLoading(false);
-        })
-        .generateEmailPreview(sheetId, templateId, tabName);
-}
-
-function displayPreview(emailContent) {
-    const previewContainer = document.getElementById("previewContainer");
-    const emailPreview = document.getElementById("emailPreview");
-    const validationMessage = document.getElementById("subjectValidationMessage");
-    const validationBanner = document.getElementById("subjectValidate");
-
-    if (!emailContent || emailContent === "Error generating preview.") {
-        validationBanner.className = "alert bad";
-        validationMessage.innerHTML = `<i class='fa-solid fa-circle-xmark' style='color:var(--status-baseCritical)'></i> Failed to generate preview. Please check your template or sheet data.`;
-        showToast("Preview generation failed", "error");
-    } else {
-        validationBanner.className = "alert good";
-        validationMessage.innerHTML = `<i class='fa-solid fa-circle-check' style='color:var(--status-baseSuccess)'></i> Email preview has been generated!`;
-        showToast("Email preview has been generated!", "success");
-        emailPreview.innerHTML = emailContent;
-    }
-}
-
-function fetchSubjectLine() {
-    google.script.run
-        .withSuccessHandler(subjectLine => {
-            document.getElementById("emailSubject").value = subjectLine;
-            document.getElementById("subjectLine").textContent = subjectLine;
-        })
-        .withFailureHandler(() => {
-            document.getElementById("subjectLine").textContent = "⚠️ Failed to get subject line";
-        })
-        .getSubjectLine();
-}
-
-function updateSubject() {
-    let subjectLine = document.getElementById("emailSubject").value.trim(); // Trim whitespace
-    const validationMessage = document.getElementById("subjectValidationMessage");
-    const validationBanner = document.getElementById("subjectValidate");
-    validationBanner.className = "alert"; // Reset alert state
-
-    if (!subjectLine) {
-        validationBanner.className = "alert bad";
-        validationMessage.innerHTML = `<i class='fa-solid fa-circle-xmark' style='color:var(--status-baseCritical)'></i> Subject line cannot be empty.`;
-        showToast("Empty subject line", "error");
-        return;
-    }
-
-    showLoading(true);
-    google.script.run
-        .withSuccessHandler(() => {
-            validationBanner.className = "alert good";
-            validationMessage.innerHTML = `<i class='fa-solid fa-circle-check' style='color:var(--status-baseSuccess)'></i> Subject line updated!`;
-            showToast("Subject line updated!");
-            fetchSubjectLine(); // Refresh the displayed subject line and input value
-            showLoading(false);
-        })
-        .withFailureHandler(error => {
-            validationBanner.className = "alert bad";
-            validationMessage.innerHTML = `<i class='fa-solid fa-circle-xmark' style='color:var(--status-baseCritical)'></i> Failed to update subject line: ${error.message}`;
-            showToast("Subject line update failed", "error");
-            handleError(error, "Failed to update subject line.");
-            showLoading(false);
-        })
-        .setSubjectLine(subjectLine);
-}
-
-function confirmSendEmails() {
-    const templateId = document.getElementById("templateSelect").value;
-    const sheetLinkInput = document.getElementById("sheetId");
-    const sheetId = extractId(sheetLinkInput.value.trim());
-    const tabName = document.getElementById("tabSelect").value;
-    const emailSubjectInput = document.getElementById("emailSubject"); // Get from the input field
-    const subjectLine = emailSubjectInput.value.trim(); // Get the actual value for sending
-    
-    const sendAsSelect = document.getElementById("sendAsSelect"); // Get the select element
-    const selectedOption = sendAsSelect.options[sendAsSelect.selectedIndex]; // Get the selected option
-    const selectedFromEmail = selectedOption ? selectedOption.value : ''; // Get the email value
-    const selectedFromName = selectedOption ? selectedOption.dataset.displayName : ''; // Get the display name from data-attribute
-
-    const validationMessage = document.getElementById("subjectValidationMessage");
-    const validationBanner = document.getElementById("subjectValidate");
-    validationBanner.className = "alert"; // Reset alert state
-
-
-    if (!isSheetValidated || currentSheetId !== sheetId || currentTabName !== tabName || currentTemplateId !== templateId) {
-        validationBanner.className = "alert bad";
-        validationMessage.innerHTML = `<i class='fa-solid fa-circle-xmark' style='color:var(--status-baseCritical)'></i> Please validate your sheet and template first before sending emails.`;
-        showToast("Cannot send: Sheet not validated or selection changed.", "error");
-        return;
-    }
-
-    if (!subjectLine) { // Use the value from the input field
-        validationBanner.className = "alert bad";
-        validationMessage.innerHTML = `<i class='fa-solid fa-circle-xmark' style='color:var(--status-baseCritical)'></i> Please enter a subject line.`;
-        showToast("Cannot send: No subject line.", "error");
-        return;
-    }
-
-    if (!selectedFromEmail) {
-        const sendAsValidationMessage = document.getElementById("sendAsValidationMessage");
-        const sendAsValidationBanner = document.getElementById("sendAsValidate");
-        sendAsValidationBanner.className = "alert bad";
-        sendAsValidationMessage.innerHTML = `<i class='fa-solid fa-circle-xmark' style='color:var(--status-baseCritical)'></i> Please select a 'Send As' email address.`;
-        showToast("Cannot send: No 'From' address selected.", "error");
-        return;
-    }
-
-    if (confirm("Are you sure you want to send emails? This action cannot be undone.")) {
-        sendEmails(sheetId, templateId, subjectLine, tabName, selectedFromEmail, selectedFromName); // Pass selectedFromEmail
-    }
-}
-
-function sendEmails(sheetId, templateId, subject, tabName, fromEmail, fromName) { // Receive values as parameters
-    showLoading(true);
-
-    google.script.run
-        .withSuccessHandler(result => {
-            showSendResult(result);
-        })
-        .withFailureHandler(error => {
-            const validationMessage = document.getElementById("subjectValidationMessage"); // Ensure these are defined for the failure case
-            const validationBanner = document.getElementById("subjectValidate");
-
-            validationBanner.className = "alert bad";
-            validationMessage.innerHTML = `<i class='fa-solid fa-circle-xmark' style='color:var(--status-baseCritical)'></i> Failed to send Emails: ${error.message}`;
-            showToast("Failed to send Emails.", "error");
-            handleError(error, "Failed to send Emails.");
-            showLoading(false);
-        })
-        .sendEmailsWithSheet(sheetId, templateId, subject, tabName, fromEmail, fromName);
-}
-
-function showSendResult(result) {
-    showLoading(false);
-    const sendMessage = document.getElementById("sendMessage");
-    sendMessage.innerHTML = `
-        <div><i class="fa-solid fa-paper-plane"></i> Sent: ${result.details.sent} | <i class="fa-solid fa-forward"></i> Skipped (Already Sent): ${result.details.skipped} | <i class="fa-solid fa-triangle-exclamation"></i> Failed: ${result.details.failed.length}</div>
-    `;
-
-    if (result.details.failed.length > 0) {
-        let errorList = "<ul class='failed-emails-list'>"; // Add a class for styling
-        result.details.failed.forEach(error => {
-            errorList += `<li>${error.email} - ${error.error}</li>`;
-        });
-        errorList += "</ul>";
-        sendMessage.innerHTML += errorList;
-        sendMessage.className = "alert bad"; // Highlight send message if failures
-    } else {
-        sendMessage.className = "alert good"; // Highlight success if no failures
-    }
-
-    showToast(result.message, result.success ? "success" : "error");
-    fetchAndDisplayEmailCount();
-    // Only cleanup UI and reset properties if all emails were attempted to send (even if some failed)
-    // and if the overall operation was considered a "success" (i.e., script didn't crash)
-    if (result.success) { // This means the Apps Script function finished without throwing an uncaught error
-        cleanupUi(); // This will also call the server-side cleanup
-        // Reset validation status after send operation
-        isSheetValidated = false;
-        resetValidationDisplay();
-    }
-}
-
-function showLoading(state) {
-    document.getElementById("loadingIndicator").style.display = state ? "flex" : "none"; // Change to flex for lottie-player
-}
-
-function cleanupUi() {
-    // Clear the visual state of the UI elements related to validation and preview
-    const alertElements = document.querySelectorAll(".alert");
-    const alertTextElements = document.querySelectorAll(".alertText");
-
-    alertElements.forEach(alert => {
-        alert.className = "alert"; // Reset to base class
-    });
-
-    alertTextElements.forEach(alertText => {
-        alertText.innerHTML = "";
-    });
-
-    // Clear email preview and subject preview
-    document.getElementById("emailPreview").innerHTML = "";
-
-    // Reset subject line input if desired after send
-    document.getElementById("emailSubject").value = "";
-
-    // Reset sheet and template selection in UI for a fresh start
-    document.getElementById("sheetId").value = "";
-    loadTemplates();
-    //document.getElementById("tabSelect").innerHTML = '<option value="Select Sheet Tab">Validate Sheet to Select Tab</option>'; // Reset tab dropdown
-    //document.getElementById("templateSelect").value = ""; // Reset template dropdown to default/first option if available
-
-    // Reset internal state variables
-    isSheetValidated = false;
-    currentSheetId = '';
-    currentTabName = '';
-    currentTemplateId = '';
-
-    // Call the server-side function to delete the stored property
-    google.script.run.cleanup();
-}
-
-function handleError(error, message = "An error occurred.") {
-    console.error(error);
-    document.getElementById("errorMessage").innerText = message; // Make sure you have an element with this ID.
-    showToast(message, "error"); // Show a toast for the error
-}
-
-// Function to format name (kept for client-side usage in previewEmail)
-function formatName(name) {
-    return name ? name.split(' ')[0].charAt(0).toUpperCase() + name.split(' ')[0].slice(1).toLowerCase() : '';
-}
-
-function fetchAndDisplayEmailCount() {
-    google.script.run
-        .withSuccessHandler(count => {
-            document.getElementById("totalSentCount").textContent = count.toLocaleString(); // Format with commas
-        })
-        .withFailureHandler(error => {
-            Logger.log("Failed to fetch total sent email count: " + error.message);
-            document.getElementById("totalSentCount").textContent = "Error";
-        })
-        .getTotalSentEmailCount(); // Call the new server-side function
-}
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<AirPostApp />);
 </script>
