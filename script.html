@@ -34,6 +34,7 @@
         const [selectedTab, setSelectedTab] = useState('');
         const [validationState, setValidationState] = useState({ status: 'idle', details: null });
         const [isValidating, setIsValidating] = useState(false);
+        const [isFetchingTabs, setIsFetchingTabs] = useState(false);
 
         // Preview & Send State
         const [subjectLine, setSubjectLine] = useState('');
@@ -149,11 +150,10 @@
                 addToast('Invalid Google Sheet URL', 'error');
                 return;
             }
+            setIsFetchingTabs(true);
             try {
                 const tabs = await runGas('getSheetTabs', sheetIdMatch[0]);
                 setSheetTabs(tabs);
-                
-                // CORNER CASE FIX: Ensure the selected tab is reset if it doesn't exist in the new sheet
                 if (tabs.length > 0 && !tabs.includes(selectedTab)) {
                     setSelectedTab(tabs[0]);
                 } else if (tabs.length === 0) {
@@ -161,6 +161,8 @@
                 }
             } catch (err) {
                 addToast('Failed to load tabs. Ensure you have access to the Sheet.', 'error');
+            } finally {
+                setIsFetchingTabs(false); // --- END LOADING ---
             }
         };
 
@@ -439,12 +441,27 @@
                                             <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2">Google Sheet URL</label>
                                             <input type="text" placeholder="https://docs.google.com/spreadsheets/d/..." className="form-input mb-4" value={sheetUrl} onChange={e => setSheetUrl(e.target.value)} />
                                             
-                                            <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2">Select Tab</label>
-                                            <select className="form-input mb-4" disabled={sheetTabs.length === 0} value={selectedTab} onChange={e => setSelectedTab(e.target.value)}>
-                                                {sheetTabs.length === 0 ? <option>Enter URL to load tabs...</option> : sheetTabs.map(t => <option key={t} value={t}>{t}</option>)}
+                                            {/* --- UPDATED TAB SELECTION UI --- */}
+                                            <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2 flex items-center gap-2">
+                                                Select Tab
+                                                {isFetchingTabs && <i className="fa-solid fa-circle-notch fa-spin text-[var(--brand-primary)]"></i>}
+                                            </label>
+                                            <select 
+                                                className="form-input mb-4" 
+                                                disabled={sheetTabs.length === 0 || isFetchingTabs} 
+                                                value={selectedTab} 
+                                                onChange={e => setSelectedTab(e.target.value)}
+                                            >
+                                                {isFetchingTabs ? (
+                                                    <option>Loading tabs...</option>
+                                                ) : sheetTabs.length === 0 ? (
+                                                    <option>Enter URL to load tabs...</option>
+                                                ) : (
+                                                    sheetTabs.map(t => <option key={t} value={t}>{t}</option>)
+                                                )}
                                             </select>
 
-                                            <button onClick={handleValidateSheet} disabled={!sheetUrl || !selectedTab || isValidating} className="btn btn-secondary w-full">
+                                            <button onClick={handleValidateSheet} disabled={!sheetUrl || !selectedTab || isValidating || isFetchingTabs} className="btn btn-secondary w-full">
                                                 {isValidating ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Validating...</> : <><i className="fa-solid fa-bolt"></i> Validate Columns</>}
                                             </button>
                                         </div>
