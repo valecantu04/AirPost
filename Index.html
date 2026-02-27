@@ -16,7 +16,7 @@
 </head>
 <body>
     <script>
-    window.LOGO_SVG = `<?!= include('RedPanda.svg.html'); ?>`;
+    window.LOGO_SVG = <?!= JSON.stringify(HtmlService.createHtmlOutputFromFile('RedPanda.svg').getContent()); ?>;
     </script>
     <div id="root"></div>
     <?!= HtmlService.createHtmlOutputFromFile('script').getContent(); ?>
