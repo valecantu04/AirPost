@@ -174,6 +174,53 @@ function extractInlineImages(htmlContent) {
   };
 }
 
+// --- NEW FEATURE: AUTO-GENERATE AUDIENCE SHEET ---
+function generateAudienceSheet(templateId, folderId) {
+  try {
+    // 1. Extract required keywords from the template
+    const templateKeywords = extractKeywordsFromTemplate(templateId);
+    
+    // 2. Build the header array. Always start with Email and Name.
+    let headers = ['Email', 'Name'];
+    
+    // Add all custom template variables that aren't already included
+    templateKeywords.forEach(keyword => {
+      if (!headers.includes(keyword)) headers.push(keyword);
+    });
+    
+    // Add system tracking columns to the end
+    headers.push('Attachments', 'Timestamp', 'Template');
+    
+    // 3. Create the new Spreadsheet
+    const templateName = DriveApp.getFileById(templateId).getName();
+    const sheetName = `Audience Data: ${templateName}`;
+    const newSheet = SpreadsheetApp.create(sheetName);
+    const sheet = newSheet.getActiveSheet();
+    
+    // 4. Inject headers into Row 1
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    
+    // 5. Apply premium formatting
+    const headerRange = sheet.getRange(1, 1, 1, headers.length);
+    headerRange.setFontWeight("bold");
+    headerRange.setBackground("#f3f4f6");
+    sheet.setFrozenRows(1);
+    sheet.autoResizeColumns(1, headers.length);
+    
+    // 6. Move the new sheet to the designated AirPost Drive folder
+    if (folderId) {
+      const file = DriveApp.getFileById(newSheet.getId());
+      const folder = DriveApp.getFolderById(folderId);
+      file.moveTo(folder);
+    }
+    
+    return newSheet.getUrl();
+  } catch (error) {
+    Logger.log(`Error generating sheet: ${error.message}\nStack: ${error.stack}`);
+    throw new Error("Failed to auto-generate Google Sheet.");
+  }
+}
+
 function sendEmailsWithSheet(sheetId, templateId, subject, tabName, fromEmail, fromName){
   try {
     const spreadsheet = SpreadsheetApp.openById(sheetId); // Open spreadsheet once

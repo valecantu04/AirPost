@@ -38,6 +38,7 @@
         const [validationState, setValidationState] = useState({ status: 'idle', details: null });
         const [isValidating, setIsValidating] = useState(false);
         const [isFetchingTabs, setIsFetchingTabs] = useState(false);
+        const [isGeneratingSheet, setIsGeneratingSheet] = useState(false);
 
         // Preview & Send State
         const [subjectLine, setSubjectLine] = useState('');
@@ -166,6 +167,27 @@
                 addToast('Failed to load tabs. Ensure you have access to the Sheet.', 'error');
             } finally {
                 setIsFetchingTabs(false); // --- END LOADING ---
+            }
+        };
+
+        // --- HANDLE SHEET GENERATION ---
+        const handleGenerateSheet = async () => {
+            setIsGeneratingSheet(true);
+            try {
+                // Call backend to create the sheet
+                const url = await runGas('generateAudienceSheet', selectedTemplate, currentFolderId);
+                
+                // Automatically populate the input field with the new URL
+                setSheetUrl(url);
+                
+                addToast('Sheet generated perfectly! Please open it to add your contacts.', 'success');
+                
+                // Pop open the new sheet in a new tab so the user can immediately add data
+                window.open(url, '_blank');
+            } catch (err) {
+                addToast(err.message, 'error');
+            } finally {
+                setIsGeneratingSheet(false);
             }
         };
 
@@ -449,9 +471,22 @@
                                     </div>
                                     <div className="space-y-6 flex-grow overflow-y-auto custom-scrollbar pr-2">
                                         <div className="app-card">
-                                            <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2">Google Sheet URL</label>
-                                            <input type="text" placeholder="https://docs.google.com/spreadsheets/d/..." className="form-input mb-4" value={sheetUrl} onChange={e => setSheetUrl(e.target.value)} />
                                             
+                                            {/* --- UPDATED URL INPUT HEADER --- */}
+                                            <div className="flex justify-between items-end mb-2">
+                                                <label className="block text-sm font-semibold text-[var(--text-secondary)]">Google Sheet URL</label>
+                                                <button 
+                                                    onClick={handleGenerateSheet} 
+                                                    disabled={isGeneratingSheet || !selectedTemplate} 
+                                                    className="text-xs text-[var(--brand-primary)] hover:text-white transition-colors font-semibold flex items-center gap-1.5 bg-black/20 px-2 py-1 rounded border border-[var(--brand-primary)]/30 hover:border-[var(--brand-primary)] disabled:opacity-50"
+                                                    title="Auto-create a perfectly formatted Google Sheet"
+                                                >
+                                                    {isGeneratingSheet ? <i className="fa-solid fa-circle-notch fa-spin"></i> : <i className="fa-solid fa-wand-magic-sparkles"></i>}
+                                                    {isGeneratingSheet ? "Creating Sheet..." : "Auto-Generate Sheet"}
+                                                </button>
+                                            </div>
+                                            
+                                            <input type="text" placeholder="https://docs.google.com/spreadsheets/d/..." className="form-input mb-4" value={sheetUrl} onChange={e => setSheetUrl(e.target.value)} />
                                             {/* --- UPDATED TAB SELECTION UI --- */}
                                             <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2 flex items-center gap-2">
                                                 Select Tab
