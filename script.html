@@ -104,7 +104,16 @@
         // --- TOAST SYSTEM ---
         const addToast = (message, type = 'success') => {
             const id = Date.now();
-            setToasts(prev => [...prev, { id, message, type }]);
+            
+            // 1. Add the toast with an isExiting flag set to false
+            setToasts(prev => [...prev, { id, message, type, isExiting: false }]);
+            
+            // 2. Trigger the fade-out animation slightly before removal (at 3.6 seconds)
+            setTimeout(() => {
+                setToasts(prev => prev.map(t => t.id === id ? { ...t, isExiting: true } : t));
+            }, 3600);
+
+            // 3. Physically remove the element from the DOM (at 4 seconds)
             setTimeout(() => {
                 setToasts(prev => prev.filter(t => t.id !== id));
             }, 4000);
@@ -394,10 +403,10 @@
                         {/* This handles fixed toast positioning and hides overflow so the toast appears to slide from under the sidebar */}
                         <div className="flex-grow flex flex-col relative overflow-hidden">
                             
-                            {/* TOAST SYSTEM RENDERING (Repositioned to top right of active workspace) */}
+                            {/* TOAST SYSTEM RENDERING */}
                             <div className="absolute top-8 right-8 z-[100] flex flex-col gap-3 pointer-events-none">
                                 {toasts.map(toast => (
-                                    <div key={toast.id} className={`toast-enter pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-lg shadow-2xl border-l-4 ${toast.type === 'success' ? 'border-[var(--status-success)]' : 'border-[var(--status-critical)]'} bg-[var(--surface-primary)] text-white min-w-[280px] max-w-[350px] border border-[var(--border-moderate)]`}>
+                                    <div key={toast.id} className={`${toast.isExiting ? 'toast-exit' : 'toast-enter'} pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-lg shadow-2xl border-l-4 ${toast.type === 'success' ? 'border-[var(--status-success)]' : 'border-[var(--status-critical)]'} bg-[var(--surface-primary)] text-white min-w-[280px] max-w-[350px] border border-[var(--border-moderate)]`}>
                                         <i className={`fa-solid ${toast.type === 'success' ? 'fa-circle-check text-[var(--status-success)]' : 'fa-triangle-exclamation text-[var(--status-critical)]'} text-xl`}></i>
                                         <div className="flex flex-col">
                                             <span className="font-bold text-sm tracking-wide uppercase">{toast.type === 'success' ? 'Success' : 'Notice'}</span>
