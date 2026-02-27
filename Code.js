@@ -385,59 +385,77 @@ function getTemplateContent(templateId) {
 
     // 2. Parse CSS classes into a dictionary map
     const cssMap = {};
-    // Google Docs class selectors usually look like .c1 { color: #000; }
     const ruleRegex = /\.([a-zA-Z0-9_-]+)\s*\{([^}]+)\}/g;
     let match;
     while ((match = ruleRegex.exec(cssContent)) !== null) {
-      // Clean up whitespace and newlines inside the CSS rules
       cssMap[match[1]] = match[2].trim().replace(/\s+/g, ' '); 
     }
 
-    // 3. Extract global body styles (often contains the default font family and size)
+    // 3. Extract global body styles
     const bodyRuleMatch = cssContent.match(/body\s*\{([^}]+)\}/i);
     let bodyStyles = bodyRuleMatch ? bodyRuleMatch[1].trim() : "font-family: Arial, sans-serif; font-size: 11pt;";
 
-    // 4. Extract just the <body> content (discarding the giant <head> entirely)
+    // 4. Extract just the <body> content
     const bodyHtmlMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
     let bodyHtml = bodyHtmlMatch ? bodyHtmlMatch[1] : html;
 
-    // 5. Inline the styles! Find every tag with a class="..." attribute
-    let inlinedHtml = bodyHtml.replace(/<([a-zA-Z0-9]+)([^>]*?)\s+class="([^"]+)"([^>]*)>/gi, function(fullMatch, tag, beforeClass, classNames, afterClass) {
-      const classes = classNames.split(/\s+/);
+    // 5. INLINER UPGRADE: Process EVERY tag to handle classes AND restore native lists
+    let inlinedHtml = bodyHtml.replace(/<([a-zA-Z0-9]+)([^>]*)>/gi, function(fullMatch, tag, attributes) {
+      const lowerTag = tag.toLowerCase();
+      
+      // Extract class attribute if it exists
+      const classMatch = attributes.match(/class="([^"]+)"/i);
       let combinedStyles = "";
       
-      // Look up each class in our dictionary and combine their rules
-      classes.forEach(cls => {
-        if (cssMap[cls]) {
-          let styleRules = cssMap[cls];
-          if (!styleRules.endsWith(';')) styleRules += ';'; // Ensure trailing semicolon
-          combinedStyles += styleRules;
-        }
-      });
+      if (classMatch) {
+        const classes = classMatch[1].split(/\s+/);
+        classes.forEach(cls => {
+          if (cssMap[cls]) {
+            let styleRules = cssMap[cls];
+            if (!styleRules.endsWith(';')) styleRules += ';';
+            combinedStyles += styleRules;
+          }
+        });
+      }
 
-      // Check if the HTML element already has an inline style="" attribute
+      // --- Restore Native HTML Bullets & Numbers ---
+      // We forcefully override Google Docs' invisible pseudo-elements with standard HTML list behavior
+      if (lowerTag === 'ul') {
+        combinedStyles += " margin: 12px 0 12px 40px !important; padding: 0 !important; list-style-type: disc !important; ";
+      } else if (lowerTag === 'ol') {
+        combinedStyles += " margin: 12px 0 12px 40px !important; padding: 0 !important; list-style-type: decimal !important; ";
+      } else if (lowerTag === 'li') {
+        combinedStyles += " margin-bottom: 5px !important; list-style-position: outside !important; display: list-item !important; ";
+      }
+
+      // If we don't have any styles to add, just strip the class (if it exists) to save size
+      if (!combinedStyles) {
+        return classMatch ? fullMatch.replace(/\s+class="[^"]+"/i, '') : fullMatch;
+      }
+
+      // Check for existing inline style="" attribute
       const styleAttrRegex = /style="([^"]*)"/i;
-      const existingStyleMatch = fullMatch.match(styleAttrRegex);
+      const existingStyleMatch = attributes.match(styleAttrRegex);
 
+      let newAttributes = attributes;
       if (existingStyleMatch) {
-        // Append our extracted styles to the existing inline styles
+        // Append our extracted/forced styles to the existing inline styles
         let existingStyles = existingStyleMatch[1];
         if (!existingStyles.endsWith(';')) existingStyles += ';';
-        let newStyleAttr = `style="${existingStyles} ${combinedStyles}"`;
-        
-        // Reconstruct the HTML tag without the class attribute, but with the combined styles
-        let tagWithoutClass = `<${tag}${beforeClass}${afterClass}>`.replace(styleAttrRegex, newStyleAttr);
-        return tagWithoutClass;
-      } else if (combinedStyles) {
-        // No existing style attribute found, just inject our newly combined styles
-        return `<${tag}${beforeClass} style="${combinedStyles}"${afterClass}>`;
+        newAttributes = attributes.replace(styleAttrRegex, `style="${existingStyles} ${combinedStyles}"`);
       } else {
-        // No matching CSS classes found in our dictionary, just strip the class attribute to save file size
-        return `<${tag}${beforeClass}${afterClass}>`;
+        // Inject brand new style attribute
+        newAttributes = `${attributes} style="${combinedStyles}"`;
       }
+
+      // Strip the class="" attribute completely to save payload size
+      if (classMatch) {
+        newAttributes = newAttributes.replace(/\s+class="[^"]+"/i, '');
+      }
+
+      return `<${tag}${newAttributes}>`;
     });
 
-    // 6. Return the cleaned, inlined HTML wrapped in the global body styles
     return `<div style="${bodyStyles}">${inlinedHtml.trim()}</div>`;
 
   } catch (error) {
