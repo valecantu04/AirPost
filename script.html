@@ -327,6 +327,7 @@
         if (isInitializing) return (
             <div className="flex h-screen w-screen items-center justify-center bg-[#05161F]">
                 <div className="flex flex-col items-center gap-4">
+                    <div dangerouslySetInnerHTML={{ __html: logoSvg }} className="header-logo" style={{width:'36px', height:'36px', filter: 'drop-shadow(0 0 8px rgba(0, 136, 161, 0.4))'}} />
                     <i className="fa-solid fa-paper-plane text-4xl text-[#22d3ee] animate-pulse"></i>
                     <p className="text-white text-lg font-medium">Loading AirPost Environment...</p>
                 </div>
