@@ -11,12 +11,91 @@
         });
     };
 
+    const Stepper = ({ steps, currentStep, onStepClick }) => {
+        // Mathematically calculate progress width based on dynamic step array
+        const totalSteps = steps.length;
+        const progressWidth = ((currentStep - 1) / (totalSteps - 1)) * 100;
+
+        return (
+            <div className="w-full relative pt-2 pb-8 mb-4">
+                
+                {/* --- TRACK CONTAINER --- */}
+                {/* left-[1.25rem] and right-[1.25rem] perfectly align the track to the center of the w-10 (2.5rem) circular nodes */}
+                <div className="absolute top-[1.4rem] left-[1.25rem] right-[1.25rem] h-1 z-0">
+                    {/* Inactive Background Track */}
+                    <div className="absolute inset-0 w-full h-full bg-[var(--border-moderate)] rounded"></div>
+                    {/* Active Progress Track */}
+                    <div 
+                        className="absolute top-0 left-0 h-full bg-[var(--brand-primary)] rounded transition-all duration-500 ease-[cubic-bezier(0.25,1,0.5,1)] shadow-[0_0_10px_var(--brand-primary)]"
+                        style={{ width: `${progressWidth}%` }}
+                    ></div>
+                </div>
+
+                {/* --- STEP NODES --- */}
+                <div className="relative z-10 flex justify-between">
+                    {steps.map((step, index) => {
+                        const stepNum = index + 1;
+                        const isCompleted = currentStep > stepNum;
+                        const isActive = currentStep === stepNum;
+                        
+                        // Determine styles based on state
+                        let nodeClasses = "w-10 h-10 rounded-full flex items-center justify-center font-bold transition-all duration-300 ease-in-out border-2 ";
+                        let textClasses = "absolute top-12 text-center w-28 text-sm font-semibold transition-colors duration-300 ";
+
+                        if (isCompleted) {
+                            // Completed State
+                            nodeClasses += "bg-[var(--brand-primary)] border-[var(--surface-primary)] text-[#020f24] cursor-pointer hover:scale-105 hover:shadow-[0_0_15px_rgba(34,211,238,0.5)]";
+                            textClasses += "text-white cursor-pointer";
+                        } else if (isActive) {
+                            // Active State
+                            nodeClasses += "bg-[var(--brand-primary)] border-[var(--surface-primary)] text-[#020f24] shadow-[0_0_15px_rgba(34,211,238,0.6)] scale-105";
+                            textClasses += "text-white";
+                        } else {
+                            // Upcoming State
+                            nodeClasses += "bg-[var(--surface-primary)] border-[var(--border-moderate)] text-[var(--text-secondary)]";
+                            textClasses += "text-[var(--text-disabled)]";
+                        }
+
+                        return (
+                            <div key={step.id} className="flex flex-col items-center relative">
+                                <button 
+                                    onClick={() => isCompleted && onStepClick(stepNum)}
+                                    disabled={!isCompleted}
+                                    className={nodeClasses}
+                                    aria-label={`Step ${stepNum}: ${step.label}`}
+                                    aria-current={isActive ? "step" : undefined}
+                                >
+                                    {isCompleted ? <i className="fa-solid fa-check"></i> : stepNum}
+                                </button>
+                                <span 
+                                    className={textClasses}
+                                    onClick={() => isCompleted && onStepClick(stepNum)}
+                                >
+                                    {step.label}
+                                </span>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        );
+    };
+
     const AirPostApp = () => {
         // --- GLOBAL STATE ---
         const [step, setStep] = useState(1);
         const [isInitializing, setIsInitializing] = useState(true);
         const [globalData, setGlobalData] = useState({ userEmail: '', totalSent: 0 });
         const [toasts, setToasts] = useState([]);
+        
+        const WORKFLOW_STEPS = [
+        { id: 'setup', label: 'Campaign Setup' },
+        { id: 'audience', label: 'Audience' },
+        { id: 'preview', label: 'Preview & Send' }
+        
+        ];
+        // Get logo from window
+        const logoSvg = window.LOGO_SVG || '';
 
         // Form State
         const [aliases, setAliases] = useState([]);
@@ -34,6 +113,8 @@
         const [selectedTab, setSelectedTab] = useState('');
         const [validationState, setValidationState] = useState({ status: 'idle', details: null });
         const [isValidating, setIsValidating] = useState(false);
+        const [isFetchingTabs, setIsFetchingTabs] = useState(false);
+        const [isGeneratingSheet, setIsGeneratingSheet] = useState(false);
 
         // Preview & Send State
         const [subjectLine, setSubjectLine] = useState('');
@@ -60,6 +141,14 @@
                     })}
                 </span>
             );
+        };
+
+        // --- STEPPER NAVIGATION ---
+        const handleStepperClick = (targetStep) => {
+            // Users can only click backward to completed steps, preventing them from skipping validation
+            if (targetStep < step) {
+                setStep(targetStep);
+            }
         };
 
         // --- INITIALIZATION ---
@@ -99,7 +188,16 @@
         // --- TOAST SYSTEM ---
         const addToast = (message, type = 'success') => {
             const id = Date.now();
-            setToasts(prev => [...prev, { id, message, type }]);
+            
+            // 1. Add the toast with an isExiting flag set to false
+            setToasts(prev => [...prev, { id, message, type, isExiting: false }]);
+            
+            // 2. Trigger the fade-out animation slightly before removal (at 3.6 seconds)
+            setTimeout(() => {
+                setToasts(prev => prev.map(t => t.id === id ? { ...t, isExiting: true } : t));
+            }, 3600);
+
+            // 3. Physically remove the element from the DOM (at 4 seconds)
             setTimeout(() => {
                 setToasts(prev => prev.filter(t => t.id !== id));
             }, 4000);
@@ -149,23 +247,59 @@
                 addToast('Invalid Google Sheet URL', 'error');
                 return;
             }
+            setIsFetchingTabs(true);
             try {
                 const tabs = await runGas('getSheetTabs', sheetIdMatch[0]);
                 setSheetTabs(tabs);
-                if (tabs.length > 0) setSelectedTab(tabs[0]);
+                if (tabs.length > 0 && !tabs.includes(selectedTab)) {
+                    setSelectedTab(tabs[0]);
+                } else if (tabs.length === 0) {
+                    setSelectedTab('');
+                }
             } catch (err) {
                 addToast('Failed to load tabs. Ensure you have access to the Sheet.', 'error');
+            } finally {
+                setIsFetchingTabs(false); // --- END LOADING ---
             }
         };
 
-        // Auto-fetch tabs when URL changes
+        // --- HANDLE SHEET GENERATION ---
+        const handleGenerateSheet = async () => {
+            setIsGeneratingSheet(true);
+            try {
+                // Call backend to create the sheet
+                const url = await runGas('generateAudienceSheet', selectedTemplate, currentFolderId);
+                
+                // Automatically populate the input field with the new URL
+                setSheetUrl(url);
+                
+                addToast('Sheet generated perfectly! Please open it to add your contacts.', 'success');
+                
+                // Pop open the new sheet in a new tab so the user can immediately add data
+                window.open(url, '_blank');
+            } catch (err) {
+                addToast(err.message, 'error');
+            } finally {
+                setIsGeneratingSheet(false);
+            }
+        };
+
+        // 1. Handle URL Debouncing separately
         useEffect(() => {
-            setValidationState({ status: 'idle', details: null }); // Reset validation on input change
             const delayDebounceFn = setTimeout(() => {
-                handleExtractTabs();
+                if (sheetUrl) handleExtractTabs();
             }, 1000);
             return () => clearTimeout(delayDebounceFn);
         }, [sheetUrl]);
+
+        // 2. CORNER CASE FIX: Centralized State Invalidator
+        // If the Template, Sheet URL, or Tab changes, we MUST wipe all downstream progress.
+        useEffect(() => {
+            setValidationState({ status: 'idle', details: null });
+            setPreviewData(null);
+            setPreviewIndex(0);
+            setSendResults(null);
+        }, [sheetUrl, selectedTemplate, selectedTab]);
 
         const handleValidateSheet = async () => {
             if (!sheetUrl || !selectedTab) return addToast('URL and Tab required.', 'error');
@@ -205,15 +339,17 @@
         };
 
         const handleGeneratePreview = () => {
-            if (!subjectLine) {
-                addToast('Please enter a subject line.', 'error');
+            // CORNER CASE FIX: Prevent whitespace-only subjects
+            if (!subjectLine.trim()) {
+                addToast('Please enter a valid subject line.', 'error');
                 return;
             }
-            fetchPreview(0); // Always start at Row 0 when initially clicking "Gen Preview"
+            fetchPreview(0); 
         };
 
         const handleSendEmails = async () => {
-            if (!subjectLine) return addToast('Subject is required.', 'error');
+            // CORNER CASE FIX: Prevent whitespace-only subjects
+            if (!subjectLine.trim()) return addToast('Subject is required.', 'error');
             
             if (!confirm("Are you sure you want to send emails? This cannot be undone.")) return;
 
@@ -280,16 +416,6 @@
             addToast('Campaign reset successfully.', 'success');
         };
 
-        // --- RENDER HELPERS ---
-        if (isInitializing) return (
-            <div className="flex h-screen w-screen items-center justify-center bg-[#05161F]">
-                <div className="flex flex-col items-center gap-4">
-                    <i className="fa-solid fa-paper-plane text-4xl text-[#22d3ee] animate-pulse"></i>
-                    <p className="text-white text-lg font-medium">Loading AirPost Environment...</p>
-                </div>
-            </div>
-        );
-
         const getTemplateName = () => templates.find(t => t.id === selectedTemplate)?.name || 'Pending...';
 
         return (
@@ -305,11 +431,31 @@
                     <div className="flex items-center gap-6">
                         <div className="flex items-center gap-2 text-[var(--text-secondary)] text-sm">
                             <i className="fa-solid fa-envelope-circle-check text-[var(--brand-primary)]"></i>
-                            Total Emails Sent by Rubrikans: <span className="text-white font-bold">{globalData.totalSent.toLocaleString()}</span>
+                            <div className="text-center leading-tight">
+                                Total Emails Sent<br/>by Rubrikans
+                            </div>
+                            {isInitializing ? (
+                                <div className="h-5 w-12 bg-white/20 rounded animate-pulse"></div>
+                            ) : (
+                                <span className="text-white font-bold">{globalData.totalSent.toLocaleString()}</span>
+                            )}
                         </div>
                         <div className="flex items-center gap-2 bg-black/20 px-3 py-1.5 rounded-full border border-[var(--border-moderate)] text-sm">
                             <i className="fa-solid fa-user-circle text-[var(--text-secondary)]"></i>
-                            <span>{globalData.userEmail}</span>
+                            {isInitializing ? (
+                                <div className="h-5 w-32 bg-white/20 rounded animate-pulse"></div>
+                            ) : (
+                                <span>{globalData.userEmail}</span>
+                            )}
+                        </div>
+                        
+                        {/* --- LOGO --- */}
+                        <div className="header-logo-group">
+                            <div style={{textAlign:'right', lineHeight: 1.2}}>
+                                <div style={{fontSize:'0.75rem', color:'var(--text-disabled)', textTransform:'uppercase', letterSpacing:'0.05em'}}>Powered by</div>
+                                <div style={{fontSize:'0.9rem', fontWeight:600, color:'var(--brand-primary)'}}>Red Panda Projects</div>
+                            </div>
+                            <div dangerouslySetInnerHTML={{ __html: logoSvg }} className="header-logo" style={{width:'36px', height:'36px', filter: 'drop-shadow(0 0 8px rgba(0, 136, 161, 0.4))'}} />
                         </div>
                     </div>
                 </header>
@@ -317,30 +463,36 @@
                 <main className="flex-grow flex flex-col items-center p-4 min-h-0">
                     
                     {/* STEPPER */}
-                    <div className="w-full max-w-5xl mb-6 px-4 shrink-0">
-                        <div className="flex items-center justify-between relative">
-                            <div className="absolute left-0 top-1/2 transform -translate-y-1/2 w-full h-1 bg-[var(--border-moderate)] z-0 rounded"></div>
-                            <div className="absolute left-0 top-1/2 transform -translate-y-1/2 h-1 bg-[var(--brand-primary)] z-0 rounded transition-all duration-500 shadow-[0_0_10px_var(--brand-primary)]" 
-                                 style={{ width: step === 1 ? '0%' : step === 2 ? '50%' : '100%' }}></div>
-                            
-                            {[1, 2, 3].map(num => (
-                                <div key={num} className="relative z-10 flex flex-col items-center">
-                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold transition-colors ${step >= num ? 'text-[#020f24] bg-[var(--brand-primary)] shadow-[0_0_15px_rgba(34,211,238,0.5)] border-2 border-[var(--surface-primary)]' : 'text-[var(--text-secondary)] bg-[var(--surface-primary)] border-2 border-[var(--border-moderate)]'}`}>
-                                        {step > num ? <i className="fa-solid fa-check"></i> : num}
-                                    </div>
-                                    <span className={`mt-2 font-semibold text-sm ${step >= num ? 'text-white' : 'text-[var(--text-disabled)]'}`}>
-                                        {num === 1 ? 'Setup' : num === 2 ? 'Audience' : 'Preview & Send'}
-                                    </span>
-                                </div>
-                            ))}
-                        </div>
+                    <div className="w-full max-w-6xl px-8 shrink-0">
+                        <Stepper 
+                            steps={WORKFLOW_STEPS} 
+                            currentStep={step} 
+                            onStepClick={handleStepperClick} 
+                        />
                     </div>
 
                     {/* WIZARD LAYOUT */}
-                    <div className="w-full max-w-5xl wizard-layout flex flex-col md:flex-row overflow-hidden flex-grow">
+                    <div className="w-full max-w-6xl wizard-layout flex flex-col md:flex-row overflow-hidden flex-grow">
                         
-                        {/* LEFT COLUMN: Main Forms */}
-                        <div className="flex-grow p-8 flex flex-col overflow-y-auto custom-scrollbar relative">
+                        {/* --- NEW: LEFT COLUMN WRAPPER --- */}
+                        {/* This handles fixed toast positioning and hides overflow so the toast appears to slide from under the sidebar */}
+                        <div className="flex-grow flex flex-col relative overflow-hidden">
+                            
+                            {/* TOAST SYSTEM RENDERING */}
+                            <div className="absolute top-8 right-8 z-[100] flex flex-col gap-3 pointer-events-none">
+                                {toasts.map(toast => (
+                                    <div key={toast.id} className={`${toast.isExiting ? 'toast-exit' : 'toast-enter'} pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-lg shadow-2xl border-l-4 ${toast.type === 'success' ? 'border-[var(--status-success)]' : 'border-[var(--status-critical)]'} bg-[var(--surface-primary)] text-white min-w-[280px] max-w-[350px] border border-[var(--border-moderate)]`}>
+                                        <i className={`fa-solid ${toast.type === 'success' ? 'fa-circle-check text-[var(--status-success)]' : 'fa-triangle-exclamation text-[var(--status-critical)]'} text-xl`}></i>
+                                        <div className="flex flex-col">
+                                            <span className="font-bold text-sm tracking-wide uppercase">{toast.type === 'success' ? 'Success' : 'Notice'}</span>
+                                            <span className="text-xs text-[var(--text-secondary)] mt-0.5">{toast.message}</span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* LEFT COLUMN: Main Forms (Now scrollable inside the wrapper) */}
+                            <div className="flex-grow p-8 flex flex-col overflow-y-auto custom-scrollbar relative">
                             
                             {/* STEP 1: SETUP */}
                             {step === 1 && (
@@ -354,10 +506,15 @@
                                     <div className="space-y-6 flex-grow overflow-y-auto custom-scrollbar pr-2">
                                         <div className="app-card">
                                             <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2">Send emails on behalf of:</label>
-                                            <select className="form-input" value={selectedAlias} onChange={e => setSelectedAlias(e.target.value)}>
-                                                <option value="" disabled>Select an address...</option>
-                                                {aliases.map(a => <option key={a.email} value={a.email}>{a.displayName} ({a.email})</option>)}
-                                            </select>
+                                            {/* SKELETON LOADER */}
+                                            {isInitializing ? (
+                                                <div className="h-[46px] w-full bg-[var(--input-background)] border border-[var(--input-border)] rounded animate-pulse"></div>
+                                            ) : (
+                                                <select className="form-input" value={selectedAlias} onChange={e => setSelectedAlias(e.target.value)}>
+                                                    <option value="" disabled>Select an address...</option>
+                                                    {aliases.map(a => <option key={a.email} value={a.email}>{a.displayName} ({a.email})</option>)}
+                                                </select>
+                                            )}
                                         </div>
                                         
                                         <div className="app-card">
@@ -395,10 +552,15 @@
                                                 </div>
                                             )}
 
-                                            <select className="form-input" value={selectedTemplate} onChange={e => setSelectedTemplate(e.target.value)}>
-                                                <option value="" disabled>-- Select a Google Doc Template --</option>
-                                                {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                                            </select>
+                                            {/* SKELETON LOADER */}
+                                            {isInitializing ? (
+                                                <div className="h-[46px] w-full bg-[var(--input-background)] border border-[var(--input-border)] rounded animate-pulse"></div>
+                                            ) : (
+                                                <select className="form-input" value={selectedTemplate} onChange={e => setSelectedTemplate(e.target.value)}>
+                                                    <option value="" disabled>-- Select a Google Doc Template --</option>
+                                                    {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                                                </select>
+                                            )}
                                         </div>
                                     </div>
                                     <div className="mt-6 pt-4 border-t border-[var(--border-moderate)] flex justify-end shrink-0">
@@ -420,15 +582,43 @@
                                     </div>
                                     <div className="space-y-6 flex-grow overflow-y-auto custom-scrollbar pr-2">
                                         <div className="app-card">
-                                            <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2">Google Sheet URL</label>
-                                            <input type="text" placeholder="https://docs.google.com/spreadsheets/d/..." className="form-input mb-4" value={sheetUrl} onChange={e => setSheetUrl(e.target.value)} />
                                             
-                                            <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2">Select Tab</label>
-                                            <select className="form-input mb-4" disabled={sheetTabs.length === 0} value={selectedTab} onChange={e => setSelectedTab(e.target.value)}>
-                                                {sheetTabs.length === 0 ? <option>Enter URL to load tabs...</option> : sheetTabs.map(t => <option key={t} value={t}>{t}</option>)}
+                                            {/* --- UPDATED URL INPUT HEADER --- */}
+                                            <div className="flex justify-between items-end mb-2">
+                                                <label className="block text-sm font-semibold text-[var(--text-secondary)]">Google Sheet URL</label>
+                                                <button 
+                                                    onClick={handleGenerateSheet} 
+                                                    disabled={isGeneratingSheet || !selectedTemplate} 
+                                                    className="text-xs text-[var(--brand-primary)] hover:text-white transition-colors font-semibold flex items-center gap-1.5 bg-black/20 px-2 py-1 rounded border border-[var(--brand-primary)]/30 hover:border-[var(--brand-primary)] disabled:opacity-50"
+                                                    title="Auto-create a perfectly formatted Google Sheet"
+                                                >
+                                                    {isGeneratingSheet ? <i className="fa-solid fa-circle-notch fa-spin"></i> : <i className="fa-solid fa-wand-magic-sparkles"></i>}
+                                                    {isGeneratingSheet ? "Creating Sheet..." : "Auto-Generate Sheet"}
+                                                </button>
+                                            </div>
+                                            
+                                            <input type="text" placeholder="https://docs.google.com/spreadsheets/d/..." className="form-input mb-4" value={sheetUrl} onChange={e => setSheetUrl(e.target.value)} />
+                                            {/* --- UPDATED TAB SELECTION UI --- */}
+                                            <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2 flex items-center gap-2">
+                                                Select Tab
+                                                {isFetchingTabs && <i className="fa-solid fa-circle-notch fa-spin text-[var(--brand-primary)]"></i>}
+                                            </label>
+                                            <select 
+                                                className="form-input mb-4" 
+                                                disabled={sheetTabs.length === 0 || isFetchingTabs} 
+                                                value={selectedTab} 
+                                                onChange={e => setSelectedTab(e.target.value)}
+                                            >
+                                                {isFetchingTabs ? (
+                                                    <option>Loading tabs...</option>
+                                                ) : sheetTabs.length === 0 ? (
+                                                    <option>Enter URL to load tabs...</option>
+                                                ) : (
+                                                    sheetTabs.map(t => <option key={t} value={t}>{t}</option>)
+                                                )}
                                             </select>
 
-                                            <button onClick={handleValidateSheet} disabled={!sheetUrl || !selectedTab || isValidating} className="btn btn-secondary w-full">
+                                            <button onClick={handleValidateSheet} disabled={!sheetUrl || !selectedTab || isValidating || isFetchingTabs} className="btn btn-secondary w-full">
                                                 {isValidating ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Validating...</> : <><i className="fa-solid fa-bolt"></i> Validate Columns</>}
                                             </button>
                                         </div>
@@ -446,16 +636,28 @@
                                                     {validationState.status === 'error' && (
                                                         <p className="text-sm text-[var(--status-critical)] mb-3">Please ensure your Google Sheet contains these exact headers:</p>
                                                     )}
+                                                    
+                                                    {/* UPDATED: SCANNABILITY & SORTING */}
                                                     <ul className="space-y-2">
-                                                        {validationState.details?.templateHeaders?.map(h => {
-                                                            const isMissing = validationState.details.missingKeywords.includes(h);
-                                                            return (
-                                                                <li key={h} className={`flex items-center justify-between p-2 rounded border ${isMissing ? 'bg-[var(--status-critical)]/10 border-[var(--status-critical)]/30' : 'bg-[var(--status-success)]/10 border-[var(--status-success)]/30'}`}>
-                                                                    <span className={`font-mono text-sm ${isMissing ? 'text-[var(--status-critical)]' : 'text-[var(--status-success)]'}`}>{`{{${h}}}`}</span>
-                                                                    <i className={`fa-solid ${isMissing ? 'fa-xmark text-[var(--status-critical)]' : 'fa-check text-[var(--status-success)]'}`}></i>
-                                                                </li>
-                                                            );
-                                                        })}
+                                                        {[...(validationState.details?.templateHeaders || [])]
+                                                            .sort((a, b) => {
+                                                                const aMissing = validationState.details.missingKeywords.includes(a);
+                                                                const bMissing = validationState.details.missingKeywords.includes(b);
+                                                                return (aMissing === bMissing) ? 0 : aMissing ? -1 : 1;
+                                                            })
+                                                            .map(h => {
+                                                                const isMissing = validationState.details.missingKeywords.includes(h);
+                                                                return (
+                                                                    <li key={h} className={`flex items-center justify-between p-2 rounded border ${isMissing ? 'bg-[var(--status-critical)]/10 border-[var(--status-critical)]/30' : 'bg-[var(--status-success)]/10 border-[var(--status-success)]/30'}`}>
+                                                                        <span className={`font-mono text-sm ${isMissing ? 'text-[var(--status-critical)] font-bold' : 'text-[var(--status-success)]'}`}>{`{{${h}}}`}</span>
+                                                                        {isMissing ? (
+                                                                            <span className="text-[10px] text-[var(--status-critical)] uppercase font-bold tracking-wider bg-[var(--status-critical)]/20 px-2 py-0.5 rounded">Missing</span>
+                                                                        ) : (
+                                                                            <i className="fa-solid fa-check text-[var(--status-success)]"></i>
+                                                                        )}
+                                                                    </li>
+                                                                );
+                                                            })}
                                                     </ul>
                                                 </div>
                                             </div>
@@ -476,10 +678,9 @@
                                             <h2 className="text-2xl font-bold flex items-center gap-2">
                                                 <i className="fa-solid fa-envelope-open-text text-[var(--brand-primary)]"></i> Final Review
                                             </h2>
+                                            <p className="text-[var(--text-secondary)] mt-1 text-sm">Add a subject line and review the rendered email.</p>
                                         </div>
-                                        <button onClick={handleSendEmails} disabled={isSending || !subjectLine} className="btn btn-primary !py-3 !px-6 !text-sm shadow-[0_0_15px_rgba(34,211,238,0.3)]">
-                                            {isSending ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Sending...</> : <><i className="fa-solid fa-paper-plane"></i> Dispatch Emails</>}
-                                        </button>
+                                        {/* UPDATED: The Dispatch Button was removed from here. */}
                                     </div>
 
                                     <div className="flex-grow flex flex-col min-h-0">
@@ -558,13 +759,25 @@
                                         </div>
                                     </div>
 
-                                    <div className="mt-4 pt-4 border-t border-[var(--border-moderate)] flex justify-start shrink-0">
-                                        <button onClick={() => setStep(2)} className="btn btn-secondary border-transparent"><i className="fa-solid fa-arrow-left"></i> Back</button>
+                                    {/* UPDATED: Primary Action Placement in Footer */}
+                                    <div className="mt-4 pt-4 border-t border-[var(--border-moderate)] flex justify-between shrink-0">
+                                        <button onClick={() => setStep(2)} className="btn btn-secondary border-transparent">
+                                            <i className="fa-solid fa-arrow-left"></i> Back
+                                        </button>
+                                        
+                                        <button 
+                                            onClick={handleSendEmails} 
+                                            disabled={isSending || !subjectLine} 
+                                            className="btn btn-primary !py-3 !px-6 !text-sm shadow-[0_0_15px_rgba(34,211,238,0.3)]"
+                                        >
+                                            {isSending ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Sending...</> : <><i className="fa-solid fa-paper-plane"></i> Dispatch Emails</>}
+                                        </button>
                                     </div>
                                 </div>
                             )}
 
                         </div>
+                    </div>
 
                         {/* RIGHT COLUMN: Summary Sidebar */}
                         <div className="w-full md:w-80 bg-black/20 border-l border-[var(--border-moderate)] p-6 flex flex-col shadow-inner shrink-0">
@@ -608,22 +821,9 @@
                                 Emails are sent sequentially via Google Workspace. Ensure you respect your daily quota limits to avoid bounces.
                             </div>
                         </div>
-
                     </div>
                 </main>
 
-                {/* TOAST SYSTEM RENDERING */}
-                <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-[9999] flex flex-col gap-2 pointer-events-none">
-                    {toasts.map(toast => (
-                        <div key={toast.id} className={`toast-enter pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-lg shadow-2xl border-l-4 ${toast.type === 'success' ? 'border-[var(--status-success)]' : 'border-[var(--status-critical)]'} bg-[var(--surface-primary)] text-white min-w-[300px] border border-[var(--border-moderate)]`}>
-                            <i className={`fa-solid ${toast.type === 'success' ? 'fa-circle-check text-[var(--status-success)]' : 'fa-triangle-exclamation text-[var(--status-critical)]'} text-xl`}></i>
-                            <div className="flex flex-col">
-                                <span className="font-bold text-sm tracking-wide uppercase">{toast.type === 'success' ? 'Success' : 'Notice'}</span>
-                                <span className="text-xs text-[var(--text-secondary)] mt-0.5">{toast.message}</span>
-                            </div>
-                        </div>
-                    ))}
-                </div>
             </div>
         );
     };

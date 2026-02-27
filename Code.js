@@ -174,6 +174,62 @@ function extractInlineImages(htmlContent) {
   };
 }
 
+// --- NEW FEATURE: AUTO-GENERATE AUDIENCE SHEET ---
+function generateAudienceSheet(templateId, folderId) {
+  try {
+    // 1. Extract required keywords from the template
+    const templateKeywords = extractKeywordsFromTemplate(templateId);
+    
+    // 2. Build the header array. Always start with Email and Name.
+    let headers = ['Email', 'Name'];
+    
+    // Add all custom template variables that aren't already included
+    templateKeywords.forEach(keyword => {
+      if (!headers.includes(keyword)) headers.push(keyword);
+    });
+    
+    // Add system tracking columns to the end
+    headers.push('Attachments', 'Timestamp', 'Template');
+    
+    // 3. Extract and format the user's name from their email address
+    const userEmail = Session.getActiveUser().getEmail();
+    // Turns "first.last@company.com" into "First Last"
+    const userName = userEmail.split('@')[0]
+      .split(/[.\-_]/)
+      .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+      .join(' ');
+
+    // 4. Create the new Spreadsheet with the User Name Prefix
+    const templateName = DriveApp.getFileById(templateId).getName();
+    const sheetName = `${userName} - Audience Data: ${templateName}`;
+    const newSheet = SpreadsheetApp.create(sheetName);
+    const sheet = newSheet.getActiveSheet();
+    
+    // 5. Inject headers into Row 1
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    
+    // 6. Apply premium formatting
+    const headerRange = sheet.getRange(1, 1, 1, headers.length);
+    headerRange.setFontWeight("bold");
+    headerRange.setBackground("#f3f4f6");
+    sheet.setFrozenRows(1);
+    sheet.setColumnWidths(1, headers.length, 120);
+
+    
+    // 7. Move the new sheet to the designated AirPost Drive folder
+    if (folderId) {
+      const file = DriveApp.getFileById(newSheet.getId());
+      const folder = DriveApp.getFolderById(folderId);
+      file.moveTo(folder);
+    }
+    
+    return newSheet.getUrl();
+  } catch (error) {
+    Logger.log(`Error generating sheet: ${error.message}\nStack: ${error.stack}`);
+    throw new Error("Failed to auto-generate Google Sheet.");
+  }
+}
+
 function sendEmailsWithSheet(sheetId, templateId, subject, tabName, fromEmail, fromName){
   try {
     const spreadsheet = SpreadsheetApp.openById(sheetId); // Open spreadsheet once
@@ -378,11 +434,102 @@ function getTemplateContent(templateId) {
       muteHttpExceptions: true,
     };
     let html = UrlFetchApp.fetch(url, param).getContentText();
-    html = html.replace(/<head>[\s\S]*?<\/head>/gi, '');
-    html = html.replace(/<\/?(html|body)[^>]*>/gi, '');
-    const contentFragment = html.trim();
 
-    return contentFragment;
+    // 1. Extract the <style> block from the <head>
+    const styleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+    const cssContent = styleMatch ? styleMatch[1] : '';
+
+    // 2. Parse CSS classes into a dictionary map
+    const cssMap = {};
+    const ruleRegex = /\.([a-zA-Z0-9_-]+)\s*\{([^}]+)\}/g;
+    let match;
+    while ((match = ruleRegex.exec(cssContent)) !== null) {
+      let rules = match[2].trim().replace(/\s+/g, ' '); 
+      
+      // NATIVE REFINEMENT 1: Strip hardcoded white/transparent backgrounds. 
+      // This allows the email to seamlessly adapt to the recipient's Dark Mode.
+      // (Note: It leaves custom highlight colors intact!)
+      rules = rules.replace(/background-color:\s*(?:#ffffff|rgb\(255,\s*255,\s*255\)|transparent)[^;]*;?/gi, '');
+      
+      cssMap[match[1]] = rules;
+    }
+
+    // 3. Extract global body styles
+    const bodyRuleMatch = cssContent.match(/body\s*\{([^}]+)\}/i);
+    let bodyStyles = bodyRuleMatch ? bodyRuleMatch[1].trim() : "font-family: Arial, sans-serif; font-size: 11pt;";
+    
+    // NATIVE REFINEMENT 2: Strip Google's massive 72pt (1-inch) page margins and hardcoded widths.
+    // This allows the text to flow naturally to the edges of the email app.
+    bodyStyles = bodyStyles.replace(/padding:[^;]+;?/gi, '')
+                           .replace(/max-width:[^;]+;?/gi, '')
+                           .replace(/background-color:\s*(?:#ffffff|rgb\(255,\s*255,\s*255\)|transparent)[^;]*;?/gi, '');
+
+    // 4. Extract just the <body> content
+    const bodyHtmlMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    let bodyHtml = bodyHtmlMatch ? bodyHtmlMatch[1] : html;
+
+    // 5. Process EVERY tag to handle classes AND restore native email formatting
+    let inlinedHtml = bodyHtml.replace(/<([a-zA-Z0-9]+)([^>]*)>/gi, function(fullMatch, tag, attributes) {
+      const lowerTag = tag.toLowerCase();
+      
+      const classMatch = attributes.match(/class="([^"]+)"/i);
+      let combinedStyles = "";
+      
+      if (classMatch) {
+        const classes = classMatch[1].split(/\s+/);
+        classes.forEach(cls => {
+          if (cssMap[cls]) {
+            let styleRules = cssMap[cls];
+            if (!styleRules.endsWith(';')) styleRules += ';';
+            combinedStyles += styleRules;
+          }
+        });
+      }
+
+      // --- NATIVE EMAIL REFINEMENT 3: Element Overrides ---
+      if (lowerTag === 'ul') {
+        combinedStyles += " margin: 0 0 16px 40px !important; padding: 0 !important; list-style-type: disc !important; ";
+      } else if (lowerTag === 'ol') {
+        combinedStyles += " margin: 0 0 16px 40px !important; padding: 0 !important; list-style-type: decimal !important; ";
+      } else if (lowerTag === 'li') {
+        combinedStyles += " margin-bottom: 5px !important; list-style-position: outside !important; display: list-item !important; ";
+      } else if (lowerTag === 'p') {
+        // Force paragraphs to have standard web spacing rather than rigid Google line heights
+        combinedStyles += " margin-top: 0 !important; margin-bottom: 1em !important; line-height: 1.5 !important; ";
+      } else if (lowerTag === 'table') {
+        // Ensure tables don't break the layout on mobile phones
+        combinedStyles += " width: 100% !important; max-width: 600px !important; border-collapse: collapse !important; ";
+      }
+
+      // If no styles to add, just strip the class
+      if (!combinedStyles) {
+        return classMatch ? fullMatch.replace(/\s+class="[^"]+"/i, '') : fullMatch;
+      }
+
+      const styleAttrRegex = /style="([^"]*)"/i;
+      const existingStyleMatch = attributes.match(styleAttrRegex);
+
+      let newAttributes = attributes;
+      if (existingStyleMatch) {
+        let existingStyles = existingStyleMatch[1];
+        // Clean existing inline styles of blinding white backgrounds
+        existingStyles = existingStyles.replace(/background-color:\s*(?:#ffffff|rgb\(255,\s*255,\s*255\)|transparent)[^;]*;?/gi, '');
+        if (!existingStyles.endsWith(';')) existingStyles += ';';
+        newAttributes = attributes.replace(styleAttrRegex, `style="${existingStyles} ${combinedStyles}"`);
+      } else {
+        newAttributes = `${attributes} style="${combinedStyles}"`;
+      }
+
+      if (classMatch) {
+        newAttributes = newAttributes.replace(/\s+class="[^"]+"/i, '');
+      }
+
+      return `<${tag}${newAttributes}>`;
+    });
+
+    // Wrap in a clean div with a standard color reset to ensure it looks native everywhere
+    return `<div style="${bodyStyles} color: inherit; word-wrap: break-word; -webkit-font-smoothing: antialiased;">${inlinedHtml.trim()}</div>`;
+
   } catch (error) {
     Logger.log(`Error retrieving template content: ${error.message}\nStack: ${error.stack}`);
     return "";
