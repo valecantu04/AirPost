@@ -377,19 +377,29 @@
                 <main className="flex-grow flex flex-col items-center p-4 min-h-0">
                     
                     {/* STEPPER */}
-                    <div className="w-full max-w-6xl mb-6 px-4 shrink-0">
+                    <div className="w-full max-w-5xl mb-6 px-4 shrink-0">
                         <div className="flex items-center justify-between relative">
-                            <div className="absolute mx-4 left-0 top-1/2 transform -translate-y-1/2 w-[96%] h-1 bg-[var(--border-moderate)] z-0 rounded"></div>
+                            <div className="absolute left-0 top-1/2 transform -translate-y-1/2 w-full h-1 bg-[var(--border-moderate)] z-0 rounded"></div>
                             <div className="absolute left-0 top-1/2 transform -translate-y-1/2 h-1 bg-[var(--brand-primary)] z-0 rounded transition-all duration-500 shadow-[0_0_10px_var(--brand-primary)]" 
                                  style={{ width: step === 1 ? '0%' : step === 2 ? '50%' : '100%' }}></div>
                             
                             {[1, 2, 3].map(num => (
                                 <div key={num} className="relative z-10 flex flex-col items-center">
                                     <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold transition-colors ${step >= num ? 'text-[#020f24] bg-[var(--brand-primary)] shadow-[0_0_15px_rgba(34,211,238,0.5)] border-2 border-[var(--surface-primary)]' : 'text-[var(--text-secondary)] bg-[var(--surface-primary)] border-2 border-[var(--border-moderate)]'}`}>
-                                        {step > num ? <i className="fa-solid fa-check"></i> : num}
+                                        
+                                        {/* UPDATED: Red Panda SVG for Completed Steps */}
+                                        {step > num ? (
+                                            <span 
+                                                className="w-6 h-6 flex items-center justify-center drop-shadow-sm"
+                                                dangerouslySetInnerHTML={{ __html: window.LOGO_SVG || '<i class="fa-solid fa-check"></i>' }}
+                                            />
+                                        ) : (
+                                            num
+                                        )}
+
                                     </div>
                                     <span className={`mt-2 font-semibold text-sm ${step >= num ? 'text-white' : 'text-[var(--text-disabled)]'}`}>
-                                        {num === 1 ? 'Setup' : num === 2 ? 'Audience' : <>Preview<br/>&amp; Send</>}
+                                        {num === 1 ? 'Setup' : num === 2 ? 'Audience' : 'Preview & Send'}
                                     </span>
                                 </div>
                             ))}
