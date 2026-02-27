@@ -191,23 +191,32 @@ function generateAudienceSheet(templateId, folderId) {
     // Add system tracking columns to the end
     headers.push('Attachments', 'Timestamp', 'Template');
     
-    // 3. Create the new Spreadsheet
+    // 3. Extract and format the user's name from their email address
+    const userEmail = Session.getActiveUser().getEmail();
+    // Turns "first.last@company.com" into "First Last"
+    const userName = userEmail.split('@')[0]
+      .split(/[.\-_]/)
+      .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+      .join(' ');
+
+    // 4. Create the new Spreadsheet with the User Name Prefix
     const templateName = DriveApp.getFileById(templateId).getName();
-    const sheetName = `Audience Data: ${templateName}`;
+    const sheetName = `${userName} - Audience Data: ${templateName}`;
     const newSheet = SpreadsheetApp.create(sheetName);
     const sheet = newSheet.getActiveSheet();
     
-    // 4. Inject headers into Row 1
+    // 5. Inject headers into Row 1
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     
-    // 5. Apply premium formatting
+    // 6. Apply premium formatting
     const headerRange = sheet.getRange(1, 1, 1, headers.length);
     headerRange.setFontWeight("bold");
     headerRange.setBackground("#f3f4f6");
     sheet.setFrozenRows(1);
-    sheet.autoResizeColumns(1, headers.length);
+    sheet.setColumnWidths(1, headers.length, 120);
+
     
-    // 6. Move the new sheet to the designated AirPost Drive folder
+    // 7. Move the new sheet to the designated AirPost Drive folder
     if (folderId) {
       const file = DriveApp.getFileById(newSheet.getId());
       const folder = DriveApp.getFolderById(folderId);
