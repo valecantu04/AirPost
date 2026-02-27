@@ -179,10 +179,18 @@
     }
 
     /* Toast Animation */
-    @keyframes slideInUp { from { transform: translate(-50%, 100%); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
-    @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
-    .toast-enter { animation: slideInUp 0.3s ease-out forwards; }
-    .toast-exit { animation: fadeOut 0.3s ease-out forwards; }
+    @keyframes slideInRight { 
+        from { transform: translateX(120%); opacity: 0; } 
+        to { transform: translateX(0); opacity: 1; } 
+    }
+    @keyframes slideOutRight { 
+        from { transform: translateX(0); opacity: 1; } 
+        to { transform: translateX(120%); opacity: 0; } 
+    }
+    
+    /* Using a highly-polished cubic-bezier for a snappy, modern slide effect */
+    .toast-enter { animation: slideInRight 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
+    .toast-exit { animation: slideOutRight 0.3s ease-in forwards; }
 
     /* --- LOGO --- */
   .header-logo-group {
