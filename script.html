@@ -17,6 +17,9 @@
         const [isInitializing, setIsInitializing] = useState(true);
         const [globalData, setGlobalData] = useState({ userEmail: '', totalSent: 0 });
         const [toasts, setToasts] = useState([]);
+        
+        // Get logo from window
+        const logoSvg = window.LOGO_SVG || '';
 
         // Form State
         const [aliases, setAliases] = useState([]);
@@ -332,10 +335,10 @@
                         {/* --- LOGO --- */}
                         <div className="header-logo-group">
                             <div style={{textAlign:'right', lineHeight: 1.2}}>
-                            <div style={{fontSize:'0.75rem', color:'var(--text-disabled)', textTransform:'uppercase', letterSpacing:'0.05em'}}>Powered by</div>
-                            <div style={{fontSize:'0.9rem', fontWeight:600, color:'var(--brand-primary)'}}>Red Panda Projects</div>
+                                <div style={{fontSize:'0.75rem', color:'var(--text-disabled)', textTransform:'uppercase', letterSpacing:'0.05em'}}>Powered by</div>
+                                <div style={{fontSize:'0.9rem', fontWeight:600, color:'var(--brand-primary)'}}>Red Panda Projects</div>
                             </div>
-                            <span dangerouslySetInnerHTML={{ __html: logoSvg }} className="header-logo" style={{width:'36px', height:'36px', filter: 'drop-shadow(0 0 8px rgba(0, 136, 161, 0.4))'}} />
+                            <div dangerouslySetInnerHTML={{ __html: logoSvg }} className="header-logo" style={{width:'36px', height:'36px', filter: 'drop-shadow(0 0 8px rgba(0, 136, 161, 0.4))'}} />
                         </div>
                     </div>
                 </header>
