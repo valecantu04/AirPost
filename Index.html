@@ -15,6 +15,9 @@
     <?!= HtmlService.createHtmlOutputFromFile('styles').getContent(); ?>
 </head>
 <body>
+    <script>
+    window.LOGO_SVG = `<?!= include('RedPanda.svg.html'); ?>`;
+    </script>
     <div id="root"></div>
     <?!= HtmlService.createHtmlOutputFromFile('script').getContent(); ?>
 </body>

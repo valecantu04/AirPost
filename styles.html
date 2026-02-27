@@ -182,4 +182,29 @@
     @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
     .toast-enter { animation: slideInUp 0.3s ease-out forwards; }
     .toast-exit { animation: fadeOut 0.3s ease-out forwards; }
+
+    /* --- LOGO --- */
+  .header-logo-group {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end; /* Push to far right */
+    gap: 12px;
+    padding-right: 1rem;
+  }
+
+  .header-logo {
+    height: 36px;
+    flex-shrink: 0;
+  }
+  
+  .header-logo svg {
+      height: 100%;
+      width: auto;
+  }
+
+  .header-powered-by {
+    font-size: 0.875rem; /* from Header.jsx */
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
 </style>

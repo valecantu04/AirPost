@@ -329,6 +329,14 @@
                             <i className="fa-solid fa-user-circle text-[var(--text-secondary)]"></i>
                             <span>{globalData.userEmail}</span>
                         </div>
+                        {/* --- LOGO --- */}
+                        <div className="header-logo-group">
+                            <div style={{textAlign:'right', lineHeight: 1.2}}>
+                            <div style={{fontSize:'0.75rem', color:'var(--text-disabled)', textTransform:'uppercase', letterSpacing:'0.05em'}}>Powered by</div>
+                            <div style={{fontSize:'0.9rem', fontWeight:600, color:'var(--brand-primary)'}}>Red Panda Projects</div>
+                            </div>
+                            <span dangerouslySetInnerHTML={{ __html: logoSvg }} className="header-logo" style={{width:'36px', height:'36px', filter: 'drop-shadow(0 0 8px rgba(0, 136, 161, 0.4))'}} />
+                        </div>
                     </div>
                 </header>
 
