@@ -388,22 +388,34 @@ function getTemplateContent(templateId) {
     const ruleRegex = /\.([a-zA-Z0-9_-]+)\s*\{([^}]+)\}/g;
     let match;
     while ((match = ruleRegex.exec(cssContent)) !== null) {
-      cssMap[match[1]] = match[2].trim().replace(/\s+/g, ' '); 
+      let rules = match[2].trim().replace(/\s+/g, ' '); 
+      
+      // NATIVE REFINEMENT 1: Strip hardcoded white/transparent backgrounds. 
+      // This allows the email to seamlessly adapt to the recipient's Dark Mode.
+      // (Note: It leaves custom highlight colors intact!)
+      rules = rules.replace(/background-color:\s*(?:#ffffff|rgb\(255,\s*255,\s*255\)|transparent)[^;]*;?/gi, '');
+      
+      cssMap[match[1]] = rules;
     }
 
     // 3. Extract global body styles
     const bodyRuleMatch = cssContent.match(/body\s*\{([^}]+)\}/i);
     let bodyStyles = bodyRuleMatch ? bodyRuleMatch[1].trim() : "font-family: Arial, sans-serif; font-size: 11pt;";
+    
+    // NATIVE REFINEMENT 2: Strip Google's massive 72pt (1-inch) page margins and hardcoded widths.
+    // This allows the text to flow naturally to the edges of the email app.
+    bodyStyles = bodyStyles.replace(/padding:[^;]+;?/gi, '')
+                           .replace(/max-width:[^;]+;?/gi, '')
+                           .replace(/background-color:\s*(?:#ffffff|rgb\(255,\s*255,\s*255\)|transparent)[^;]*;?/gi, '');
 
     // 4. Extract just the <body> content
     const bodyHtmlMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
     let bodyHtml = bodyHtmlMatch ? bodyHtmlMatch[1] : html;
 
-    // 5. INLINER UPGRADE: Process EVERY tag to handle classes AND restore native lists
+    // 5. Process EVERY tag to handle classes AND restore native email formatting
     let inlinedHtml = bodyHtml.replace(/<([a-zA-Z0-9]+)([^>]*)>/gi, function(fullMatch, tag, attributes) {
       const lowerTag = tag.toLowerCase();
       
-      // Extract class attribute if it exists
       const classMatch = attributes.match(/class="([^"]+)"/i);
       let combinedStyles = "";
       
@@ -418,37 +430,40 @@ function getTemplateContent(templateId) {
         });
       }
 
-      // --- Restore Native HTML Bullets & Numbers ---
-      // We forcefully override Google Docs' invisible pseudo-elements with standard HTML list behavior
+      // --- NATIVE EMAIL REFINEMENT 3: Element Overrides ---
       if (lowerTag === 'ul') {
-        combinedStyles += " margin: 12px 0 12px 40px !important; padding: 0 !important; list-style-type: disc !important; ";
+        combinedStyles += " margin: 0 0 16px 40px !important; padding: 0 !important; list-style-type: disc !important; ";
       } else if (lowerTag === 'ol') {
-        combinedStyles += " margin: 12px 0 12px 40px !important; padding: 0 !important; list-style-type: decimal !important; ";
+        combinedStyles += " margin: 0 0 16px 40px !important; padding: 0 !important; list-style-type: decimal !important; ";
       } else if (lowerTag === 'li') {
         combinedStyles += " margin-bottom: 5px !important; list-style-position: outside !important; display: list-item !important; ";
+      } else if (lowerTag === 'p') {
+        // Force paragraphs to have standard web spacing rather than rigid Google line heights
+        combinedStyles += " margin-top: 0 !important; margin-bottom: 1em !important; line-height: 1.5 !important; ";
+      } else if (lowerTag === 'table') {
+        // Ensure tables don't break the layout on mobile phones
+        combinedStyles += " width: 100% !important; max-width: 600px !important; border-collapse: collapse !important; ";
       }
 
-      // If we don't have any styles to add, just strip the class (if it exists) to save size
+      // If no styles to add, just strip the class
       if (!combinedStyles) {
         return classMatch ? fullMatch.replace(/\s+class="[^"]+"/i, '') : fullMatch;
       }
 
-      // Check for existing inline style="" attribute
       const styleAttrRegex = /style="([^"]*)"/i;
       const existingStyleMatch = attributes.match(styleAttrRegex);
 
       let newAttributes = attributes;
       if (existingStyleMatch) {
-        // Append our extracted/forced styles to the existing inline styles
         let existingStyles = existingStyleMatch[1];
+        // Clean existing inline styles of blinding white backgrounds
+        existingStyles = existingStyles.replace(/background-color:\s*(?:#ffffff|rgb\(255,\s*255,\s*255\)|transparent)[^;]*;?/gi, '');
         if (!existingStyles.endsWith(';')) existingStyles += ';';
         newAttributes = attributes.replace(styleAttrRegex, `style="${existingStyles} ${combinedStyles}"`);
       } else {
-        // Inject brand new style attribute
         newAttributes = `${attributes} style="${combinedStyles}"`;
       }
 
-      // Strip the class="" attribute completely to save payload size
       if (classMatch) {
         newAttributes = newAttributes.replace(/\s+class="[^"]+"/i, '');
       }
@@ -456,7 +471,8 @@ function getTemplateContent(templateId) {
       return `<${tag}${newAttributes}>`;
     });
 
-    return `<div style="${bodyStyles}">${inlinedHtml.trim()}</div>`;
+    // Wrap in a clean div with a standard color reset to ensure it looks native everywhere
+    return `<div style="${bodyStyles} color: inherit; word-wrap: break-word; -webkit-font-smoothing: antialiased;">${inlinedHtml.trim()}</div>`;
 
   } catch (error) {
     Logger.log(`Error retrieving template content: ${error.message}\nStack: ${error.stack}`);
