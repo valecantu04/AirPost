@@ -152,20 +152,34 @@
             try {
                 const tabs = await runGas('getSheetTabs', sheetIdMatch[0]);
                 setSheetTabs(tabs);
-                if (tabs.length > 0) setSelectedTab(tabs[0]);
+                
+                // CORNER CASE FIX: Ensure the selected tab is reset if it doesn't exist in the new sheet
+                if (tabs.length > 0 && !tabs.includes(selectedTab)) {
+                    setSelectedTab(tabs[0]);
+                } else if (tabs.length === 0) {
+                    setSelectedTab('');
+                }
             } catch (err) {
                 addToast('Failed to load tabs. Ensure you have access to the Sheet.', 'error');
             }
         };
 
-        // Auto-fetch tabs when URL changes
+        // 1. Handle URL Debouncing separately
         useEffect(() => {
-            setValidationState({ status: 'idle', details: null }); // Reset validation on input change
             const delayDebounceFn = setTimeout(() => {
-                handleExtractTabs();
+                if (sheetUrl) handleExtractTabs();
             }, 1000);
             return () => clearTimeout(delayDebounceFn);
         }, [sheetUrl]);
+
+        // 2. CORNER CASE FIX: Centralized State Invalidator
+        // If the Template, Sheet URL, or Tab changes, we MUST wipe all downstream progress.
+        useEffect(() => {
+            setValidationState({ status: 'idle', details: null });
+            setPreviewData(null);
+            setPreviewIndex(0);
+            setSendResults(null);
+        }, [sheetUrl, selectedTemplate, selectedTab]);
 
         const handleValidateSheet = async () => {
             if (!sheetUrl || !selectedTab) return addToast('URL and Tab required.', 'error');
@@ -205,15 +219,17 @@
         };
 
         const handleGeneratePreview = () => {
-            if (!subjectLine) {
-                addToast('Please enter a subject line.', 'error');
+            // CORNER CASE FIX: Prevent whitespace-only subjects
+            if (!subjectLine.trim()) {
+                addToast('Please enter a valid subject line.', 'error');
                 return;
             }
-            fetchPreview(0); // Always start at Row 0 when initially clicking "Gen Preview"
+            fetchPreview(0); 
         };
 
         const handleSendEmails = async () => {
-            if (!subjectLine) return addToast('Subject is required.', 'error');
+            // CORNER CASE FIX: Prevent whitespace-only subjects
+            if (!subjectLine.trim()) return addToast('Subject is required.', 'error');
             
             if (!confirm("Are you sure you want to send emails? This cannot be undone.")) return;
 
