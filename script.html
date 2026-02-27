@@ -323,17 +323,6 @@
             addToast('Campaign reset successfully.', 'success');
         };
 
-        // --- RENDER HELPERS ---
-        if (isInitializing) return (
-            <div className="flex h-screen w-screen items-center justify-center bg-[#05161F]">
-                <div className="flex flex-col items-center gap-4">
-                    <div dangerouslySetInnerHTML={{ __html: logoSvg }} className="header-logo" style={{width:'36px', height:'36px', filter: 'drop-shadow(0 0 8px rgba(0, 136, 161, 0.4))'}} />
-                    <i className="fa-solid fa-paper-plane text-4xl text-[#22d3ee] animate-pulse"></i>
-                    <p className="text-white text-lg font-medium">Loading AirPost Environment...</p>
-                </div>
-            </div>
-        );
-
         const getTemplateName = () => templates.find(t => t.id === selectedTemplate)?.name || 'Pending...';
 
         return (
@@ -349,19 +338,22 @@
                     <div className="flex items-center gap-6">
                         <div className="flex items-center gap-2 text-[var(--text-secondary)] text-sm">
                             <i className="fa-solid fa-envelope-circle-check text-[var(--brand-primary)]"></i>
-                            Total Emails Sent by Rubrikans: <span className="text-white font-bold">{globalData.totalSent.toLocaleString()}</span>
+                            Total Sent: 
+                            {/* SKELETON LOADER */}
+                            {isInitializing ? (
+                                <div className="h-5 w-12 bg-white/20 rounded animate-pulse"></div>
+                            ) : (
+                                <span className="text-white font-bold">{globalData.totalSent.toLocaleString()}</span>
+                            )}
                         </div>
                         <div className="flex items-center gap-2 bg-black/20 px-3 py-1.5 rounded-full border border-[var(--border-moderate)] text-sm">
                             <i className="fa-solid fa-user-circle text-[var(--text-secondary)]"></i>
-                            <span>{globalData.userEmail}</span>
-                        </div>
-                        {/* --- LOGO --- */}
-                        <div className="header-logo-group">
-                            <div style={{textAlign:'right', lineHeight: 1.2}}>
-                                <div style={{fontSize:'0.75rem', color:'var(--text-disabled)', textTransform:'uppercase', letterSpacing:'0.05em'}}>Powered by</div>
-                                <div style={{fontSize:'0.9rem', fontWeight:600, color:'var(--brand-primary)'}}>Red Panda Projects</div>
-                            </div>
-                            <div dangerouslySetInnerHTML={{ __html: logoSvg }} className="header-logo" style={{width:'36px', height:'36px', filter: 'drop-shadow(0 0 8px rgba(0, 136, 161, 0.4))'}} />
+                            {/* SKELETON LOADER */}
+                            {isInitializing ? (
+                                <div className="h-5 w-32 bg-white/20 rounded animate-pulse"></div>
+                            ) : (
+                                <span>{globalData.userEmail}</span>
+                            )}
                         </div>
                     </div>
                 </header>
@@ -406,10 +398,15 @@
                                     <div className="space-y-6 flex-grow overflow-y-auto custom-scrollbar pr-2">
                                         <div className="app-card">
                                             <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2">Send emails on behalf of:</label>
-                                            <select className="form-input" value={selectedAlias} onChange={e => setSelectedAlias(e.target.value)}>
-                                                <option value="" disabled>Select an address...</option>
-                                                {aliases.map(a => <option key={a.email} value={a.email}>{a.displayName} ({a.email})</option>)}
-                                            </select>
+                                            {/* SKELETON LOADER */}
+                                            {isInitializing ? (
+                                                <div className="h-[46px] w-full bg-[var(--input-background)] border border-[var(--input-border)] rounded animate-pulse"></div>
+                                            ) : (
+                                                <select className="form-input" value={selectedAlias} onChange={e => setSelectedAlias(e.target.value)}>
+                                                    <option value="" disabled>Select an address...</option>
+                                                    {aliases.map(a => <option key={a.email} value={a.email}>{a.displayName} ({a.email})</option>)}
+                                                </select>
+                                            )}
                                         </div>
                                         
                                         <div className="app-card">
@@ -447,10 +444,15 @@
                                                 </div>
                                             )}
 
-                                            <select className="form-input" value={selectedTemplate} onChange={e => setSelectedTemplate(e.target.value)}>
-                                                <option value="" disabled>-- Select a Google Doc Template --</option>
-                                                {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                                            </select>
+                                            {/* SKELETON LOADER */}
+                                            {isInitializing ? (
+                                                <div className="h-[46px] w-full bg-[var(--input-background)] border border-[var(--input-border)] rounded animate-pulse"></div>
+                                            ) : (
+                                                <select className="form-input" value={selectedTemplate} onChange={e => setSelectedTemplate(e.target.value)}>
+                                                    <option value="" disabled>-- Select a Google Doc Template --</option>
+                                                    {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                                                </select>
+                                            )}
                                         </div>
                                     </div>
                                     <div className="mt-6 pt-4 border-t border-[var(--border-moderate)] flex justify-end shrink-0">
@@ -526,16 +528,28 @@
                                                     {validationState.status === 'error' && (
                                                         <p className="text-sm text-[var(--status-critical)] mb-3">Please ensure your Google Sheet contains these exact headers:</p>
                                                     )}
+                                                    
+                                                    {/* UPDATED: SCANNABILITY & SORTING */}
                                                     <ul className="space-y-2">
-                                                        {validationState.details?.templateHeaders?.map(h => {
-                                                            const isMissing = validationState.details.missingKeywords.includes(h);
-                                                            return (
-                                                                <li key={h} className={`flex items-center justify-between p-2 rounded border ${isMissing ? 'bg-[var(--status-critical)]/10 border-[var(--status-critical)]/30' : 'bg-[var(--status-success)]/10 border-[var(--status-success)]/30'}`}>
-                                                                    <span className={`font-mono text-sm ${isMissing ? 'text-[var(--status-critical)]' : 'text-[var(--status-success)]'}`}>{`{{${h}}}`}</span>
-                                                                    <i className={`fa-solid ${isMissing ? 'fa-xmark text-[var(--status-critical)]' : 'fa-check text-[var(--status-success)]'}`}></i>
-                                                                </li>
-                                                            );
-                                                        })}
+                                                        {[...(validationState.details?.templateHeaders || [])]
+                                                            .sort((a, b) => {
+                                                                const aMissing = validationState.details.missingKeywords.includes(a);
+                                                                const bMissing = validationState.details.missingKeywords.includes(b);
+                                                                return (aMissing === bMissing) ? 0 : aMissing ? -1 : 1;
+                                                            })
+                                                            .map(h => {
+                                                                const isMissing = validationState.details.missingKeywords.includes(h);
+                                                                return (
+                                                                    <li key={h} className={`flex items-center justify-between p-2 rounded border ${isMissing ? 'bg-[var(--status-critical)]/10 border-[var(--status-critical)]/30' : 'bg-[var(--status-success)]/10 border-[var(--status-success)]/30'}`}>
+                                                                        <span className={`font-mono text-sm ${isMissing ? 'text-[var(--status-critical)] font-bold' : 'text-[var(--status-success)]'}`}>{`{{${h}}}`}</span>
+                                                                        {isMissing ? (
+                                                                            <span className="text-[10px] text-[var(--status-critical)] uppercase font-bold tracking-wider bg-[var(--status-critical)]/20 px-2 py-0.5 rounded">Missing</span>
+                                                                        ) : (
+                                                                            <i className="fa-solid fa-check text-[var(--status-success)]"></i>
+                                                                        )}
+                                                                    </li>
+                                                                );
+                                                            })}
                                                     </ul>
                                                 </div>
                                             </div>
@@ -556,10 +570,9 @@
                                             <h2 className="text-2xl font-bold flex items-center gap-2">
                                                 <i className="fa-solid fa-envelope-open-text text-[var(--brand-primary)]"></i> Final Review
                                             </h2>
+                                            <p className="text-[var(--text-secondary)] mt-1 text-sm">Add a subject line and review the rendered email.</p>
                                         </div>
-                                        <button onClick={handleSendEmails} disabled={isSending || !subjectLine} className="btn btn-primary !py-3 !px-6 !text-sm shadow-[0_0_15px_rgba(34,211,238,0.3)]">
-                                            {isSending ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Sending...</> : <><i className="fa-solid fa-paper-plane"></i> Dispatch Emails</>}
-                                        </button>
+                                        {/* UPDATED: The Dispatch Button was removed from here. */}
                                     </div>
 
                                     <div className="flex-grow flex flex-col min-h-0">
@@ -638,8 +651,19 @@
                                         </div>
                                     </div>
 
-                                    <div className="mt-4 pt-4 border-t border-[var(--border-moderate)] flex justify-start shrink-0">
-                                        <button onClick={() => setStep(2)} className="btn btn-secondary border-transparent"><i className="fa-solid fa-arrow-left"></i> Back</button>
+                                    {/* UPDATED: Primary Action Placement in Footer */}
+                                    <div className="mt-4 pt-4 border-t border-[var(--border-moderate)] flex justify-between shrink-0">
+                                        <button onClick={() => setStep(2)} className="btn btn-secondary border-transparent">
+                                            <i className="fa-solid fa-arrow-left"></i> Back
+                                        </button>
+                                        
+                                        <button 
+                                            onClick={handleSendEmails} 
+                                            disabled={isSending || !subjectLine} 
+                                            className="btn btn-primary !py-3 !px-6 !text-sm shadow-[0_0_15px_rgba(34,211,238,0.3)]"
+                                        >
+                                            {isSending ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Sending...</> : <><i className="fa-solid fa-paper-plane"></i> Dispatch Emails</>}
+                                        </button>
                                     </div>
                                 </div>
                             )}
