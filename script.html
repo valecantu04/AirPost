@@ -431,7 +431,9 @@
                     <div className="flex items-center gap-6">
                         <div className="flex items-center gap-2 text-[var(--text-secondary)] text-sm">
                             <i className="fa-solid fa-envelope-circle-check text-[var(--brand-primary)]"></i>
-                            Total Emails Sent<br/>by Rubrikans
+                            <div className="text-center leading-tight">
+                                Total Emails Sent<br/>by Rubrikans
+                            </div>
                             {isInitializing ? (
                                 <div className="h-5 w-12 bg-white/20 rounded animate-pulse"></div>
                             ) : (
