@@ -183,14 +183,16 @@
         from { transform: translateX(120%); opacity: 0; } 
         to { transform: translateX(0); opacity: 1; } 
     }
-    @keyframes slideOutRight { 
-        from { transform: translateX(0); opacity: 1; } 
-        to { transform: translateX(120%); opacity: 0; } 
+    
+    /* NEW: Pure fade out for a clean exit */
+    @keyframes fadeOutToast { 
+        from { opacity: 1; transform: translateX(0); } 
+        to { opacity: 0; transform: translateX(0); } 
     }
     
-    /* Using a highly-polished cubic-bezier for a snappy, modern slide effect */
     .toast-enter { animation: slideInRight 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
-    .toast-exit { animation: slideOutRight 0.3s ease-in forwards; }
+    /* Apply the new fadeOut animation */
+    .toast-exit { animation: fadeOutToast 0.4s ease-out forwards; }
 
     /* --- LOGO --- */
   .header-logo-group {
