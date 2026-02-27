@@ -339,7 +339,6 @@
                         <div className="flex items-center gap-2 text-[var(--text-secondary)] text-sm">
                             <i className="fa-solid fa-envelope-circle-check text-[var(--brand-primary)]"></i>
                             Total Sent: 
-                            {/* SKELETON LOADER */}
                             {isInitializing ? (
                                 <div className="h-5 w-12 bg-white/20 rounded animate-pulse"></div>
                             ) : (
@@ -348,12 +347,20 @@
                         </div>
                         <div className="flex items-center gap-2 bg-black/20 px-3 py-1.5 rounded-full border border-[var(--border-moderate)] text-sm">
                             <i className="fa-solid fa-user-circle text-[var(--text-secondary)]"></i>
-                            {/* SKELETON LOADER */}
                             {isInitializing ? (
                                 <div className="h-5 w-32 bg-white/20 rounded animate-pulse"></div>
                             ) : (
                                 <span>{globalData.userEmail}</span>
                             )}
+                        </div>
+                        
+                        {/* --- LOGO --- */}
+                        <div className="header-logo-group">
+                            <div style={{textAlign:'right', lineHeight: 1.2}}>
+                                <div style={{fontSize:'0.75rem', color:'var(--text-disabled)', textTransform:'uppercase', letterSpacing:'0.05em'}}>Powered by</div>
+                                <div style={{fontSize:'0.9rem', fontWeight:600, color:'var(--brand-primary)'}}>Red Panda Projects</div>
+                            </div>
+                            <div dangerouslySetInnerHTML={{ __html: logoSvg }} className="header-logo" style={{width:'36px', height:'36px', filter: 'drop-shadow(0 0 8px rgba(0, 136, 161, 0.4))'}} />
                         </div>
                     </div>
                 </header>
