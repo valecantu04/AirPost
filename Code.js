@@ -433,7 +433,32 @@ function getTemplateContent(templateId) {
       headers: { Authorization: `Bearer ${ScriptApp.getOAuthToken()}` },
       muteHttpExceptions: true,
     };
-    let html = UrlFetchApp.fetch(url, param).getContentText();
+
+    // --- Smart Retry Logic & Error Handling ---
+    let response;
+    let retries = 3;
+    let success = false;
+    
+    while (retries > 0) {
+      response = UrlFetchApp.fetch(url, param);
+      
+      // Check if Google returned our document successfully (HTTP 200)
+      if (response.getResponseCode() === 200) {
+        success = true;
+        break; 
+      }
+      
+      // If it failed, wait 1.5 seconds and try again (Google APIs often recover quickly)
+      retries--;
+      Utilities.sleep(1500); 
+    }
+    
+    // If we failed all 3 attempts, abort the entire process so we don't send an error page
+    if (!success) {
+      throw new Error(`Google Docs API is temporarily unavailable (Error ${response.getResponseCode()}). Please wait a few minutes and try again.`);
+    }
+
+    let html = response.getContentText();
 
     // 1. Extract the <style> block from the <head>
     const styleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
