@@ -496,7 +496,7 @@ function getTemplateContent(templateId) {
     // --- GRACEFUL EMPTY PARAGRAPH HANDLING ---
     // Convert empty paragraphs (or paragraphs containing only spaces/spans/brs) into standard HTML line breaks.
     // This perfectly preserves the user's intended visual break without compounding the 12pt paragraph margins.
-    bodyHtml = bodyHtml.replace(/<p[^>]*>(?:\s|&nbsp;|<br\s*\/?>|<\/?span[^>]*>)*<\/p>/gi, '<br>');
+    bodyHtml = bodyHtml.replace(/<p[^>]*>(?:\s|&nbsp;|<br\s*\/?>|<\/?span[^>]*>)*<\/p>/gi, '');
 
     // 5. Process EVERY tag to handle classes AND restore native email formatting
     let inlinedHtml = bodyHtml.replace(/<([a-zA-Z0-9]+)([^>]*)>/gi, function(fullMatch, tag, attributes) {
