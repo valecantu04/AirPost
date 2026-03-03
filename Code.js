@@ -509,15 +509,14 @@ function getTemplateContent(templateId) {
       } else if (lowerTag === 'img') {
         baseResets = "display: block; max-width: 100%; height: auto; border: 0; text-decoration: none; ";
       } else if (lowerTag === 'a') {
-        // Native Google link blue
         baseResets = "text-decoration: underline; color: #1155cc; "; 
       } else if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(lowerTag)) {
-        baseResets = "margin-top: 14pt; margin-bottom: 4pt; line-height: 1.38; ";
+        // UPDATED: Explicitly zero out left/right margins to prevent floating inheritance
+        baseResets = "margin: 14pt 0 4pt 0; line-height: 1.38; ";
       } else if (lowerTag === 'p') {
-        // Native Google paragraph spacing
-        baseResets = "margin-top: 12pt; margin-bottom: 12pt; line-height: 1.38; "; 
+        // UPDATED: Explicitly zero out left/right margins 
+        baseResets = "margin: 12pt 0 12pt 0; line-height: 1.38; "; 
       } else if (lowerTag === 'span') {
-        // Preserves double spaces and indents exactly as typed in the Doc
         baseResets = "white-space: pre-wrap; vertical-align: baseline; ";
       }
 
@@ -535,13 +534,14 @@ function getTemplateContent(templateId) {
       }
 
       // --- LAYER 3: Forced Overrides (Fixing Google Docs Quirks) ---
-      // We MUST use !important here to override Google's injected 'list-style-type: none'
       if (lowerTag === 'ul') {
         forcedOverrides = "margin: 0 !important; padding: 0 0 0 40px !important; list-style-type: disc !important; ";
       } else if (lowerTag === 'ol') {
         forcedOverrides = "margin: 0 !important; padding: 0 0 0 40px !important; list-style-type: decimal !important; ";
       } else if (lowerTag === 'li') {
-        forcedOverrides = "margin-bottom: 0 !important; list-style-position: outside !important; display: list-item !important; ";
+        // UPDATED: Forcefully strip any injected left-margins from Google Docs classes.
+        // This guarantees the <li> relies 100% on the parent <ul> for its positioning.
+        forcedOverrides = "margin-left: 0 !important; padding-left: 0 !important; margin-bottom: 0 !important; list-style-position: outside !important; display: list-item !important; ";
       }
 
       // Combine layers in strict hierarchy
