@@ -497,52 +497,69 @@ function getTemplateContent(templateId) {
     let inlinedHtml = bodyHtml.replace(/<([a-zA-Z0-9]+)([^>]*)>/gi, function(fullMatch, tag, attributes) {
       const lowerTag = tag.toLowerCase();
       
+      let baseResets = "";
+      let googleClassStyles = "";
+      let forcedOverrides = "";
+
+      // --- LAYER 1: Base Email Resets (Safety Nets) ---
+      if (lowerTag === 'table') {
+        baseResets = "border-collapse: collapse; border-spacing: 0; ";
+      } else if (lowerTag === 'td' || lowerTag === 'th') {
+        baseResets = "padding: 0; vertical-align: top; "; // padding 0 is safer; user can add padding in Docs
+      } else if (lowerTag === 'img') {
+        baseResets = "display: block; max-width: 100%; height: auto; border: 0; text-decoration: none; ";
+      } else if (lowerTag === 'a') {
+        baseResets = "text-decoration: underline; "; // Let user color dictate, but force underline for accessibility
+      } else if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(lowerTag)) {
+        baseResets = "margin: 0.5em 0; line-height: 1.3; ";
+      } else if (lowerTag === 'p') {
+        baseResets = "margin: 0 0 1em 0; line-height: 1.5; ";
+      }
+
+      // --- LAYER 2: Google Docs User Styles ---
       const classMatch = attributes.match(/class="([^"]+)"/i);
-      let combinedStyles = "";
-      
       if (classMatch) {
         const classes = classMatch[1].split(/\s+/);
         classes.forEach(cls => {
           if (cssMap[cls]) {
             let styleRules = cssMap[cls];
             if (!styleRules.endsWith(';')) styleRules += ';';
-            combinedStyles += styleRules;
+            googleClassStyles += styleRules;
           }
         });
       }
 
-      // --- NATIVE EMAIL REFINEMENT 3: Element Overrides ---
+      // --- LAYER 3: Forced Overrides (Fixing Google Docs Quirks) ---
+      // We MUST use !important here, because googleClassStyles will actively try to hide bullets
       if (lowerTag === 'ul') {
-        combinedStyles += " margin: 0 0 16px 40px !important; padding: 0 !important; list-style-type: disc !important; ";
+        forcedOverrides = "margin: 0 0 16px 0 !important; padding: 0 0 0 40px !important; list-style-type: disc !important; ";
       } else if (lowerTag === 'ol') {
-        combinedStyles += " margin: 0 0 16px 40px !important; padding: 0 !important; list-style-type: decimal !important; ";
+        forcedOverrides = "margin: 0 0 16px 0 !important; padding: 0 0 0 40px !important; list-style-type: decimal !important; ";
       } else if (lowerTag === 'li') {
-        combinedStyles += " margin-bottom: 5px !important; list-style-position: outside !important; display: list-item !important; ";
-      } else if (lowerTag === 'p') {
-        // Force paragraphs to have standard web spacing rather than rigid Google line heights
-        combinedStyles += " margin-top: 0 !important; margin-bottom: 1em !important; line-height: 1.5 !important; ";
-      } else if (lowerTag === 'table') {
-        // Ensure tables don't break the layout on mobile phones
-        combinedStyles += " width: 100% !important; max-width: 600px !important; border-collapse: collapse !important; ";
+        forcedOverrides = "margin-bottom: 5px !important; list-style-position: outside !important; display: list-item !important; ";
       }
 
-      // If no styles to add, just strip the class
-      if (!combinedStyles) {
+      // Combine layers in strict hierarchy
+      let finalCombinedStyles = (baseResets + googleClassStyles + forcedOverrides).trim();
+
+      if (!finalCombinedStyles) {
         return classMatch ? fullMatch.replace(/\s+class="[^"]+"/i, '') : fullMatch;
       }
 
+      // Check for existing inline styles and merge them
       const styleAttrRegex = /style="([^"]*)"/i;
       const existingStyleMatch = attributes.match(styleAttrRegex);
-
       let newAttributes = attributes;
+
       if (existingStyleMatch) {
         let existingStyles = existingStyleMatch[1];
-        // Clean existing inline styles of blinding white backgrounds
+        // Strip out Google's hardcoded blinding white backgrounds for Dark Mode compatibility
         existingStyles = existingStyles.replace(/background-color:\s*(?:#ffffff|rgb\(255,\s*255,\s*255\)|transparent)[^;]*;?/gi, '');
         if (!existingStyles.endsWith(';')) existingStyles += ';';
-        newAttributes = attributes.replace(styleAttrRegex, `style="${existingStyles} ${combinedStyles}"`);
+        
+        newAttributes = attributes.replace(styleAttrRegex, `style="${existingStyles} ${finalCombinedStyles}"`);
       } else {
-        newAttributes = `${attributes} style="${combinedStyles}"`;
+        newAttributes = `${attributes} style="${finalCombinedStyles}"`;
       }
 
       if (classMatch) {
