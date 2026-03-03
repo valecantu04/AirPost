@@ -493,56 +493,111 @@ function getTemplateContent(templateId) {
     const bodyHtmlMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
     let bodyHtml = bodyHtmlMatch ? bodyHtmlMatch[1] : html;
 
+    // --- GRACEFUL EMPTY PARAGRAPH HANDLING ---
+    // Convert empty paragraphs (or paragraphs containing only spaces/spans/brs) into standard HTML line breaks.
+    // This perfectly preserves the user's intended visual break without compounding the 12pt paragraph margins.
+    bodyHtml = bodyHtml.replace(/<p[^>]*>(?:\s|&nbsp;|<br\s*\/?>|<\/?span[^>]*>)*<\/p>/gi, '');
+
     // 5. Process EVERY tag to handle classes AND restore native email formatting
     let inlinedHtml = bodyHtml.replace(/<([a-zA-Z0-9]+)([^>]*)>/gi, function(fullMatch, tag, attributes) {
       const lowerTag = tag.toLowerCase();
       
+      let baseResets = "";
+      let googleClassStyles = "";
+      let forcedOverrides = "";
+
+      // --- LAYER 1: Base Email Resets (Sourced from Native Gmail Output) ---
+      if (lowerTag === 'table') {
+        baseResets = "border-collapse: collapse; border-spacing: 0; ";
+      } else if (lowerTag === 'td' || lowerTag === 'th') {
+        baseResets = "padding: 0; vertical-align: top; "; 
+      } else if (lowerTag === 'img') {
+        baseResets = "display: block; max-width: 100%; height: auto; border: 0; text-decoration: none; ";
+      } else if (lowerTag === 'a') {
+        baseResets = "text-decoration: underline; color: #1155cc; "; 
+      } else if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(lowerTag)) {
+        // FIX 1: Explicitly added padding: 0 to override any client/Google defaults
+        baseResets = "margin: 14pt 0 4pt 0; padding: 0; line-height: 1.38; ";
+      } else if (lowerTag === 'p') {
+        // FIX 1: Explicitly added padding: 0 to override any client/Google defaults
+        baseResets = "margin: 12pt 0 12pt 0; padding: 0; line-height: 1.38; "; 
+      } else if (lowerTag === 'span') {
+        baseResets = "white-space: pre-wrap; vertical-align: baseline; ";
+      }
+
+      // --- LAYER 2: Google Docs User Styles ---
       const classMatch = attributes.match(/class="([^"]+)"/i);
-      let combinedStyles = "";
-      
       if (classMatch) {
         const classes = classMatch[1].split(/\s+/);
         classes.forEach(cls => {
           if (cssMap[cls]) {
             let styleRules = cssMap[cls];
             if (!styleRules.endsWith(';')) styleRules += ';';
-            combinedStyles += styleRules;
+            googleClassStyles += styleRules;
           }
         });
       }
 
-      // --- NATIVE EMAIL REFINEMENT 3: Element Overrides ---
+      // --- LAYER 3: Forced Overrides (Fixing Google Docs Quirks) ---
       if (lowerTag === 'ul') {
-        combinedStyles += " margin: 0 0 16px 40px !important; padding: 0 !important; list-style-type: disc !important; ";
+        forcedOverrides = "margin: 0 !important; padding: 0 0 0 40px !important; list-style-type: disc !important; ";
       } else if (lowerTag === 'ol') {
-        combinedStyles += " margin: 0 0 16px 40px !important; padding: 0 !important; list-style-type: decimal !important; ";
+        forcedOverrides = "margin: 0 !important; padding: 0 0 0 40px !important; list-style-type: decimal !important; ";
       } else if (lowerTag === 'li') {
-        combinedStyles += " margin-bottom: 5px !important; list-style-position: outside !important; display: list-item !important; ";
-      } else if (lowerTag === 'p') {
-        // Force paragraphs to have standard web spacing rather than rigid Google line heights
-        combinedStyles += " margin-top: 0 !important; margin-bottom: 1em !important; line-height: 1.5 !important; ";
-      } else if (lowerTag === 'table') {
-        // Ensure tables don't break the layout on mobile phones
-        combinedStyles += " width: 100% !important; max-width: 600px !important; border-collapse: collapse !important; ";
+        forcedOverrides = "margin-left: 0 !important; padding-left: 0 !important; margin-bottom: 0 !important; list-style-position: outside !important; display: list-item !important; ";
       }
 
-      // If no styles to add, just strip the class
-      if (!combinedStyles) {
+      // --- NEW: THE SANITIZER ENGINE ---
+      // 1. Line-Height Sanitizer
+      if (lowerTag === 'span') {
+        googleClassStyles = googleClassStyles.replace(/line-height:[^;]+;?/gi, '');
+      } else {
+        googleClassStyles = googleClassStyles.replace(/line-height:\s*1(?:\.0*)?[^;]*;?/gi, '');
+      }
+
+      // 2. Vertical Padding Sanitizer
+      // Strip Google's rigid top/bottom padding from text blocks so our native margins control the rhythm
+      if (['p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(lowerTag)) {
+        const paddingRegex = /\b(?:padding|padding-top|padding-bottom)\s*:[^;]+;?/gi;
+        googleClassStyles = googleClassStyles.replace(paddingRegex, '');
+      }
+
+      // Combine layers in strict hierarchy
+      let finalCombinedStyles = (baseResets + googleClassStyles + forcedOverrides).trim();
+
+      if (!finalCombinedStyles) {
         return classMatch ? fullMatch.replace(/\s+class="[^"]+"/i, '') : fullMatch;
       }
 
+      // Check for existing inline styles and merge them
       const styleAttrRegex = /style="([^"]*)"/i;
       const existingStyleMatch = attributes.match(styleAttrRegex);
-
       let newAttributes = attributes;
+
       if (existingStyleMatch) {
         let existingStyles = existingStyleMatch[1];
-        // Clean existing inline styles of blinding white backgrounds
+        
+        // NATIVE DARK MODE OPTIMIZATION
         existingStyles = existingStyles.replace(/background-color:\s*(?:#ffffff|rgb\(255,\s*255,\s*255\)|transparent)[^;]*;?/gi, '');
+        existingStyles = existingStyles.replace(/color:\s*(?:#000000|#000|rgb\(0,\s*0,\s*0\))[^;]*;?/gi, '');
+        
+        // Apply Sanitizers to existing inline styles as well
+        if (lowerTag === 'span') {
+          existingStyles = existingStyles.replace(/line-height:[^;]+;?/gi, '');
+        } else {
+          existingStyles = existingStyles.replace(/line-height:\s*1(?:\.0*)?[^;]*;?/gi, '');
+        }
+
+        if (['p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(lowerTag)) {
+          const paddingRegex = /\b(?:padding|padding-top|padding-bottom)\s*:[^;]+;?/gi;
+          existingStyles = existingStyles.replace(paddingRegex, '');
+        }
+
         if (!existingStyles.endsWith(';')) existingStyles += ';';
-        newAttributes = attributes.replace(styleAttrRegex, `style="${existingStyles} ${combinedStyles}"`);
+        
+        newAttributes = attributes.replace(styleAttrRegex, `style="${existingStyles} ${finalCombinedStyles}"`);
       } else {
-        newAttributes = `${attributes} style="${combinedStyles}"`;
+        newAttributes = `${attributes} style="${finalCombinedStyles}"`;
       }
 
       if (classMatch) {
