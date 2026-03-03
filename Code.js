@@ -501,19 +501,24 @@ function getTemplateContent(templateId) {
       let googleClassStyles = "";
       let forcedOverrides = "";
 
-      // --- LAYER 1: Base Email Resets (Safety Nets) ---
+      // --- LAYER 1: Base Email Resets (Sourced from Native Gmail Output) ---
       if (lowerTag === 'table') {
         baseResets = "border-collapse: collapse; border-spacing: 0; ";
       } else if (lowerTag === 'td' || lowerTag === 'th') {
-        baseResets = "padding: 0; vertical-align: top; "; // padding 0 is safer; user can add padding in Docs
+        baseResets = "padding: 0; vertical-align: top; "; 
       } else if (lowerTag === 'img') {
         baseResets = "display: block; max-width: 100%; height: auto; border: 0; text-decoration: none; ";
       } else if (lowerTag === 'a') {
-        baseResets = "text-decoration: underline; "; // Let user color dictate, but force underline for accessibility
+        // Native Google link blue
+        baseResets = "text-decoration: underline; color: #1155cc; "; 
       } else if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(lowerTag)) {
-        baseResets = "margin: 0.5em 0; line-height: 1.3; ";
+        baseResets = "margin-top: 14pt; margin-bottom: 4pt; line-height: 1.38; ";
       } else if (lowerTag === 'p') {
-        baseResets = "margin: 0 0 1em 0; line-height: 1.5; ";
+        // Native Google paragraph spacing
+        baseResets = "margin-top: 12pt; margin-bottom: 12pt; line-height: 1.38; "; 
+      } else if (lowerTag === 'span') {
+        // Preserves double spaces and indents exactly as typed in the Doc
+        baseResets = "white-space: pre-wrap; vertical-align: baseline; ";
       }
 
       // --- LAYER 2: Google Docs User Styles ---
@@ -530,13 +535,13 @@ function getTemplateContent(templateId) {
       }
 
       // --- LAYER 3: Forced Overrides (Fixing Google Docs Quirks) ---
-      // We MUST use !important here, because googleClassStyles will actively try to hide bullets
+      // We MUST use !important here to override Google's injected 'list-style-type: none'
       if (lowerTag === 'ul') {
-        forcedOverrides = "margin: 0 0 16px 0 !important; padding: 0 0 0 40px !important; list-style-type: disc !important; ";
+        forcedOverrides = "margin: 0 !important; padding: 0 0 0 40px !important; list-style-type: disc !important; ";
       } else if (lowerTag === 'ol') {
-        forcedOverrides = "margin: 0 0 16px 0 !important; padding: 0 0 0 40px !important; list-style-type: decimal !important; ";
+        forcedOverrides = "margin: 0 !important; padding: 0 0 0 40px !important; list-style-type: decimal !important; ";
       } else if (lowerTag === 'li') {
-        forcedOverrides = "margin-bottom: 5px !important; list-style-position: outside !important; display: list-item !important; ";
+        forcedOverrides = "margin-bottom: 0 !important; list-style-position: outside !important; display: list-item !important; ";
       }
 
       // Combine layers in strict hierarchy
@@ -553,8 +558,14 @@ function getTemplateContent(templateId) {
 
       if (existingStyleMatch) {
         let existingStyles = existingStyleMatch[1];
-        // Strip out Google's hardcoded blinding white backgrounds for Dark Mode compatibility
+        
+        // NATIVE DARK MODE OPTIMIZATION:
+        // Strip hardcoded white/transparent backgrounds AND hardcoded pure black text.
+        // This allows the email client to natively invert colors for Dark Mode users, 
+        // while perfectly preserving any custom colors (e.g. red text, yellow highlights) the user applied.
         existingStyles = existingStyles.replace(/background-color:\s*(?:#ffffff|rgb\(255,\s*255,\s*255\)|transparent)[^;]*;?/gi, '');
+        existingStyles = existingStyles.replace(/color:\s*(?:#000000|#000|rgb\(0,\s*0,\s*0\))[^;]*;?/gi, '');
+        
         if (!existingStyles.endsWith(';')) existingStyles += ';';
         
         newAttributes = attributes.replace(styleAttrRegex, `style="${existingStyles} ${finalCombinedStyles}"`);
@@ -562,6 +573,7 @@ function getTemplateContent(templateId) {
         newAttributes = `${attributes} style="${finalCombinedStyles}"`;
       }
 
+      // Strip the class attribute completely to save payload size
       if (classMatch) {
         newAttributes = newAttributes.replace(/\s+class="[^"]+"/i, '');
       }
