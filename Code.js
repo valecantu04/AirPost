@@ -547,13 +547,19 @@ function getTemplateContent(templateId) {
         forcedOverrides = "margin-left: 0 !important; padding-left: 0 !important; margin-bottom: 0 !important; list-style-position: outside !important; display: list-item !important; ";
       }
 
-      // --- NEW: THE LINE-HEIGHT SANITIZER ---
-      // 1. Strip ALL line-heights from <span> tags so they correctly inherit from their parent <p>
+      // --- NEW: THE SANITIZER ENGINE ---
+      // 1. Line-Height Sanitizer
       if (lowerTag === 'span') {
         googleClassStyles = googleClassStyles.replace(/line-height:[^;]+;?/gi, '');
       } else {
-        // 2. Globally strip Google's hardcoded "line-height: 1" artifacts from other tags
         googleClassStyles = googleClassStyles.replace(/line-height:\s*1(?:\.0*)?[^;]*;?/gi, '');
+      }
+
+      // 2. Vertical Padding Sanitizer
+      // Strip Google's rigid top/bottom padding from text blocks so our native margins control the rhythm
+      if (['p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(lowerTag)) {
+        const paddingRegex = /\b(?:padding|padding-top|padding-bottom)\s*:[^;]+;?/gi;
+        googleClassStyles = googleClassStyles.replace(paddingRegex, '');
       }
 
       // Combine layers in strict hierarchy
@@ -575,11 +581,16 @@ function getTemplateContent(templateId) {
         existingStyles = existingStyles.replace(/background-color:\s*(?:#ffffff|rgb\(255,\s*255,\s*255\)|transparent)[^;]*;?/gi, '');
         existingStyles = existingStyles.replace(/color:\s*(?:#000000|#000|rgb\(0,\s*0,\s*0\))[^;]*;?/gi, '');
         
-        // Apply the same Line-Height Sanitizer to existing inline styles
+        // Apply Sanitizers to existing inline styles as well
         if (lowerTag === 'span') {
           existingStyles = existingStyles.replace(/line-height:[^;]+;?/gi, '');
         } else {
           existingStyles = existingStyles.replace(/line-height:\s*1(?:\.0*)?[^;]*;?/gi, '');
+        }
+
+        if (['p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(lowerTag)) {
+          const paddingRegex = /\b(?:padding|padding-top|padding-bottom)\s*:[^;]+;?/gi;
+          existingStyles = existingStyles.replace(paddingRegex, '');
         }
 
         if (!existingStyles.endsWith(';')) existingStyles += ';';
