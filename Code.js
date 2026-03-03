@@ -539,9 +539,16 @@ function getTemplateContent(templateId) {
       } else if (lowerTag === 'ol') {
         forcedOverrides = "margin: 0 !important; padding: 0 0 0 40px !important; list-style-type: decimal !important; ";
       } else if (lowerTag === 'li') {
-        // UPDATED: Forcefully strip any injected left-margins from Google Docs classes.
-        // This guarantees the <li> relies 100% on the parent <ul> for its positioning.
-        forcedOverrides = "margin-left: 0 !important; padding-left: 0 !important; padding-top: 0 !important; padding-bottom: 0 !important; margin-bottom: 0 !important; list-style-position: outside !important; display: list-item !important; ";
+        forcedOverrides = "margin-left: 0 !important; padding-left: 0 !important; margin-bottom: 0 !important; list-style-position: outside !important; display: list-item !important; ";
+      }
+
+      // --- NEW: THE LINE-HEIGHT SANITIZER ---
+      // 1. Strip ALL line-heights from <span> tags so they correctly inherit from their parent <p>
+      if (lowerTag === 'span') {
+        googleClassStyles = googleClassStyles.replace(/line-height:[^;]+;?/gi, '');
+      } else {
+        // 2. Globally strip Google's hardcoded "line-height: 1" artifacts from other tags
+        googleClassStyles = googleClassStyles.replace(/line-height:\s*1(?:\.0*)?[^;]*;?/gi, '');
       }
 
       // Combine layers in strict hierarchy
@@ -559,13 +566,17 @@ function getTemplateContent(templateId) {
       if (existingStyleMatch) {
         let existingStyles = existingStyleMatch[1];
         
-        // NATIVE DARK MODE OPTIMIZATION:
-        // Strip hardcoded white/transparent backgrounds AND hardcoded pure black text.
-        // This allows the email client to natively invert colors for Dark Mode users, 
-        // while perfectly preserving any custom colors (e.g. red text, yellow highlights) the user applied.
+        // NATIVE DARK MODE OPTIMIZATION
         existingStyles = existingStyles.replace(/background-color:\s*(?:#ffffff|rgb\(255,\s*255,\s*255\)|transparent)[^;]*;?/gi, '');
         existingStyles = existingStyles.replace(/color:\s*(?:#000000|#000|rgb\(0,\s*0,\s*0\))[^;]*;?/gi, '');
         
+        // Apply the same Line-Height Sanitizer to existing inline styles
+        if (lowerTag === 'span') {
+          existingStyles = existingStyles.replace(/line-height:[^;]+;?/gi, '');
+        } else {
+          existingStyles = existingStyles.replace(/line-height:\s*1(?:\.0*)?[^;]*;?/gi, '');
+        }
+
         if (!existingStyles.endsWith(';')) existingStyles += ';';
         
         newAttributes = attributes.replace(styleAttrRegex, `style="${existingStyles} ${finalCombinedStyles}"`);
@@ -573,7 +584,6 @@ function getTemplateContent(templateId) {
         newAttributes = `${attributes} style="${finalCombinedStyles}"`;
       }
 
-      // Strip the class attribute completely to save payload size
       if (classMatch) {
         newAttributes = newAttributes.replace(/\s+class="[^"]+"/i, '');
       }
