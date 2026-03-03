@@ -493,6 +493,11 @@ function getTemplateContent(templateId) {
     const bodyHtmlMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
     let bodyHtml = bodyHtmlMatch ? bodyHtmlMatch[1] : html;
 
+    // --- GRACEFUL EMPTY PARAGRAPH HANDLING ---
+    // Convert empty paragraphs (or paragraphs containing only spaces/spans/brs) into standard HTML line breaks.
+    // This perfectly preserves the user's intended visual break without compounding the 12pt paragraph margins.
+    bodyHtml = bodyHtml.replace(/<p[^>]*>(?:\s|&nbsp;|<br\s*\/?>|<\/?span[^>]*>)*<\/p>/gi, '<br>');
+
     // 5. Process EVERY tag to handle classes AND restore native email formatting
     let inlinedHtml = bodyHtml.replace(/<([a-zA-Z0-9]+)([^>]*)>/gi, function(fullMatch, tag, attributes) {
       const lowerTag = tag.toLowerCase();
@@ -511,11 +516,11 @@ function getTemplateContent(templateId) {
       } else if (lowerTag === 'a') {
         baseResets = "text-decoration: underline; color: #1155cc; "; 
       } else if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(lowerTag)) {
-        // UPDATED: Explicitly zero out left/right margins to prevent floating inheritance
-        baseResets = "margin: 14pt 0 4pt 0; line-height: 1.38; ";
+        // FIX 1: Explicitly added padding: 0 to override any client/Google defaults
+        baseResets = "margin: 14pt 0 4pt 0; padding: 0; line-height: 1.38; ";
       } else if (lowerTag === 'p') {
-        // UPDATED: Explicitly zero out left/right margins 
-        baseResets = "margin: 12pt 0 12pt 0; line-height: 1.38; "; 
+        // FIX 1: Explicitly added padding: 0 to override any client/Google defaults
+        baseResets = "margin: 12pt 0 12pt 0; padding: 0; line-height: 1.38; "; 
       } else if (lowerTag === 'span') {
         baseResets = "white-space: pre-wrap; vertical-align: baseline; ";
       }
