@@ -541,7 +541,7 @@ function getTemplateContent(templateId) {
       } else if (lowerTag === 'li') {
         // UPDATED: Forcefully strip any injected left-margins from Google Docs classes.
         // This guarantees the <li> relies 100% on the parent <ul> for its positioning.
-        forcedOverrides = "margin-left: 0 !important; padding-left: 0 !important; margin-bottom: 0 !important; list-style-position: outside !important; display: list-item !important; ";
+        forcedOverrides = "margin-left: 0 !important; padding-left: 0; padding-top: 0, padding-bottom: 0 !important; margin-bottom: 0 !important; list-style-position: outside !important; display: list-item !important; ";
       }
 
       // Combine layers in strict hierarchy
