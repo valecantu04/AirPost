@@ -499,7 +499,7 @@ function getTemplateContent(templateId) {
     bodyHtml = bodyHtml.replace(/<p[^>]*>(?:\s|&nbsp;|<br\s*\/?>|<\/?span[^>]*>)*<\/p>/gi, '');
 
     // 5. Process EVERY tag to handle classes AND restore native email formatting
-    let inlinedHtml = bodyHtml.replace(/<([a-zA-Z0-9]+)([^>]*)>/gi, function(fullMatch, tag, attributes) {
+    let inlinedHtml = bodyHtml.replace(/<([a-zA-Z0-9]+)([^>]*)>/gi, function(fullMatch, tag, attributes) { 
       const lowerTag = tag.toLowerCase();
       
       let baseResets = "";
@@ -515,6 +515,22 @@ function getTemplateContent(templateId) {
         baseResets = "display: block; max-width: 100%; height: auto; border: 0; text-decoration: none; ";
       } else if (lowerTag === 'a') {
         baseResets = "text-decoration: underline; color: #1155cc; "; 
+        
+        // --- NEW: URL SANITIZER ---
+        // Strip Google Docs redirect wrappers to preserve UTMs and avoid spam filters
+        const hrefMatch = attributes.match(/href="([^"]+)"/i);
+        if (hrefMatch) {
+          const rawHref = hrefMatch[1];
+          if (rawHref.includes('google.com/url?q=')) {
+            const qMatch = rawHref.match(/[?&]q=([^&]+)/);
+            if (qMatch) {
+              // Extract the true URL and decode the UTM parameters
+              const cleanUrl = decodeURIComponent(qMatch[1]);
+              // Replace the dirty redirect link with the clean URL
+              attributes = attributes.replace(`href="${rawHref}"`, `href="${cleanUrl}"`);
+            }
+          }
+        }
       } else if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(lowerTag)) {
         // FIX 1: Explicitly added padding: 0 to override any client/Google defaults
         baseResets = "margin: 14pt 0 4pt 0; padding: 0; line-height: 1.38; ";
