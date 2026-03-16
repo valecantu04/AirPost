@@ -469,7 +469,7 @@ function getTemplateContent(templateId) {
     let match;
     while ((match = ruleRegex.exec(cssContent)) !== null) {
       let rules = match[2].trim().replace(/\s+/g, ' '); 
-      //rules = match[2].trim().replace(/"/g, "'");
+      rules = match[2].trim().replace(/"/g, "'");
       
       // NATIVE REFINEMENT 1: Strip hardcoded white/transparent backgrounds. 
       // This allows the email to seamlessly adapt to the recipient's Dark Mode.
