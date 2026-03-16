@@ -653,8 +653,14 @@ function getGmailSignature(fromEmail) {
 
 function generateEmailPreview(sheetId, templateId, tabName, rowIndex = 0) {
   try {
-    let templateText = getTemplateContent(templateId, true);
-    const recipientData = getSheetData(sheetId, tabName); 
+    const cache = CacheService.getUserCache();
+    const cacheKey = 'preview_' + templateId;
+    let templateText = cache.get(cacheKey);
+    if (!templateText) {
+      templateText = getTemplateContent(templateId, true);
+      try { cache.put(cacheKey, templateText, 600); } catch (e) { /* payload too large to cache, fetch live each time */ }
+    }
+    const recipientData = getSheetData(sheetId, tabName);
     
     const totalRows = recipientData.length;
     if (totalRows === 0) {
