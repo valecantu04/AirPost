@@ -627,9 +627,19 @@ function getTemplateContent(templateId, forPreview = false) {
     });
 
     // Wrap in a clean div with a standard color reset to ensure it looks native everywhere
-    return `<div style="${bodyStyles.trim().replace(/"/g, "'")} color: inherit; word-wrap: break-word; -webkit-font-smoothing: antialiased;">${inlinedHtml.trim()}</div>`;
-
-  } catch (error) {
+    return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="x-apple-disable-message-reformatting">
+  </head>
+  <body style="margin: 0; padding: 0; -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; background-color: transparent;">
+    <div style="${bodyStyles.replace(/"/g, "'")} color: inherit; word-wrap: break-word; -webkit-font-smoothing: antialiased;">
+      ${inlinedHtml.trim()}
+    </div>
+  </body>
+</html>`;  } catch (error) {
     Logger.log(`Error retrieving template content: ${error.message}\nStack: ${error.stack}`);
     return "";
   }
