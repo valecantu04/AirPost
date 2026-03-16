@@ -424,7 +424,7 @@ function extractKeywordsFromTemplate(templateId) {
   return [...new Set([...templateText.matchAll(/{{(.*?)}}/g)].map(match => match[1]))];
 }
 
-function getTemplateContent(templateId) {
+function getTemplateContent(templateId, forPreview = false) {
   try {
     const url = `https://docs.google.com/feeds/download/documents/export/Export?id=${templateId}&exportFormat=html`;
     const param = {
@@ -469,7 +469,7 @@ function getTemplateContent(templateId) {
     let match;
     while ((match = ruleRegex.exec(cssContent)) !== null) {
       let rules = match[2].trim().replace(/\s+/g, ' '); 
-      rules = match[2].trim().replace(/"/g, "'");
+      //rules = match[2].trim().replace(/"/g, "'");
       
       // NATIVE REFINEMENT 1: Strip hardcoded white/transparent backgrounds. 
       // This allows the email to seamlessly adapt to the recipient's Dark Mode.
@@ -624,7 +624,10 @@ function getTemplateContent(templateId) {
     });
 
     // Wrap in a clean div with a standard color reset to ensure it looks native everywhere
-    return `<div style="${bodyStyles} color: inherit; word-wrap: break-word; -webkit-font-smoothing: antialiased;">${inlinedHtml.trim()}</div>`;
+    if (forPreview) {
+      return `<div style="${bodyStyles} color: inherit; word-wrap: break-word; -webkit-font-smoothing: antialiased;">${inlinedHtml.trim()}</div>`;
+    }
+    return `<div style="${bodyStyles.trim().replace(/"/g, "'")} color: inherit; word-wrap: break-word; -webkit-font-smoothing: antialiased;">${inlinedHtml.trim()}</div>`;
 
   } catch (error) {
     Logger.log(`Error retrieving template content: ${error.message}\nStack: ${error.stack}`);
@@ -650,7 +653,7 @@ function getGmailSignature(fromEmail) {
 
 function generateEmailPreview(sheetId, templateId, tabName, rowIndex = 0) {
   try {
-    let templateText = getTemplateContent(templateId);
+    let templateText = getTemplateContent(templateId, true);
     const recipientData = getSheetData(sheetId, tabName); 
     
     const totalRows = recipientData.length;
