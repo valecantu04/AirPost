@@ -469,7 +469,10 @@ function getTemplateContent(templateId, forPreview = false) {
     let match;
     while ((match = ruleRegex.exec(cssContent)) !== null) {
       let rules = match[2].trim().replace(/\s+/g, ' '); 
-      //rules = match[2].trim().replace(/"/g, "'");
+      if (!forPreview) {
+        rules = rules.replace(/"/g, "'"); // For preview, use double quotes
+      }
+      
       
       // NATIVE REFINEMENT 1: Strip hardcoded white/transparent backgrounds. 
       // This allows the email to seamlessly adapt to the recipient's Dark Mode.
@@ -624,9 +627,6 @@ function getTemplateContent(templateId, forPreview = false) {
     });
 
     // Wrap in a clean div with a standard color reset to ensure it looks native everywhere
-    if (forPreview) {
-      return `<div style="${bodyStyles} color: inherit; word-wrap: break-word; -webkit-font-smoothing: antialiased;">${inlinedHtml.trim()}</div>`;
-    }
     return `<div style="${bodyStyles.trim().replace(/"/g, "'")} color: inherit; word-wrap: break-word; -webkit-font-smoothing: antialiased;">${inlinedHtml.trim()}</div>`;
 
   } catch (error) {
