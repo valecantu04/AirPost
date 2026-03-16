@@ -314,7 +314,7 @@ function sendEmailsWithSheet(sheetId, templateId, subject, tabName, fromEmail, f
         emailContent = emailContent.replace(regex, recipient[key] || '');
         personalizedSubject = personalizedSubject.replace(regex, recipient[key] || '');
       });
-      emailContent = emailContent.replace(/<img/g, '<img style="max-width: 100%; height: auto;"');
+      
       // --- NEW ATTACHMENT LOGIC ---
       let attachments = [];
       const attachmentIdsString = recipient["Attachments"]; // Get value from "Attachments" column
@@ -425,7 +425,7 @@ function extractKeywordsFromTemplate(templateId) {
   return [...new Set([...templateText.matchAll(/{{(.*?)}}/g)].map(match => match[1]))];
 }
 
-function getTemplateContent(templateId) {
+function getTemplateContent(templateId, forPreview = false) {
   try {
     const url = `https://docs.google.com/feeds/download/documents/export/Export?id=${templateId}&exportFormat=html`;
     const param = {
@@ -460,31 +460,40 @@ function getTemplateContent(templateId) {
 
     let html = response.getContentText();
 
-    // 1. Extract the <style> block from the <head>
-    const styleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
-    const cssContent = styleMatch ? styleMatch[1] : '';
+    // --- FIX 1: EXTRACT MULTIPLE STYLE BLOCKS ---
+    let cssContent = '';
+    const styleRegex = /<style[^>]*>([\s\S]*?)<\/style>/gi;
+    let styleMatch;
+    while ((styleMatch = styleRegex.exec(html)) !== null) {
+      cssContent += styleMatch[1] + '\n';
+    }
 
-    // 2. Parse CSS classes into a dictionary map
+    // --- FIX 2: SMART CSS PARSER & DOUBLE-QUOTE SANITIZER ---
     const cssMap = {};
-    const ruleRegex = /\.([a-zA-Z0-9_-]+)\s*\{([^}]+)\}/g;
-    let match;
-    while ((match = ruleRegex.exec(cssContent)) !== null) {
-      let rules = match[2].trim().replace(/\s+/g, ' '); 
+    const blockRegex = /([^{]+)\{([^}]+)\}/g;
+    let blockMatch;
+    
+    while ((blockMatch = blockRegex.exec(cssContent)) !== null) {
+      const rawSelectors = blockMatch[1];
+      // Sanitize double quotes to single quotes to protect HTML attributes
+      let rules = blockMatch[2].trim().replace(/"/g, "'");
       
-      // NATIVE REFINEMENT 1: Strip hardcoded white/transparent backgrounds. 
-      // This allows the email to seamlessly adapt to the recipient's Dark Mode.
-      // (Note: It leaves custom highlight colors intact!)
+      // Native Refinement: Strip hardcoded white backgrounds
       rules = rules.replace(/background-color:\s*(?:#ffffff|rgb\(255,\s*255,\s*255\)|transparent)[^;]*;?/gi, '');
       
-      cssMap[match[1]] = rules;
+      const selectors = rawSelectors.split(',');
+      selectors.forEach(selector => {
+        const classMatch = selector.match(/\.([a-zA-Z0-9_-]+)/);
+        if (classMatch) {
+          const className = classMatch[1];
+          cssMap[className] = (cssMap[className] || '') + ' ' + rules;
+        }
+      });
     }
 
     // 3. Extract global body styles
     const bodyRuleMatch = cssContent.match(/body\s*\{([^}]+)\}/i);
     let bodyStyles = bodyRuleMatch ? bodyRuleMatch[1].trim() : "font-family: Arial, sans-serif; font-size: 11pt;";
-    
-    // NATIVE REFINEMENT 2: Strip Google's massive 72pt (1-inch) page margins and hardcoded widths.
-    // This allows the text to flow naturally to the edges of the email app.
     bodyStyles = bodyStyles.replace(/padding:[^;]+;?/gi, '')
                            .replace(/max-width:[^;]+;?/gi, '')
                            .replace(/background-color:\s*(?:#ffffff|rgb\(255,\s*255,\s*255\)|transparent)[^;]*;?/gi, '');
@@ -493,9 +502,8 @@ function getTemplateContent(templateId) {
     const bodyHtmlMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
     let bodyHtml = bodyHtmlMatch ? bodyHtmlMatch[1] : html;
 
-    // --- GRACEFUL EMPTY PARAGRAPH HANDLING ---
-    // Convert empty paragraphs (or paragraphs containing only spaces/spans/brs) into standard HTML line breaks.
-    // This perfectly preserves the user's intended visual break without compounding the 12pt paragraph margins.
+    // --- FIX 3: GRACEFUL EMPTY PARAGRAPH HANDLING ---
+    // Safely convert empty spaces to standard HTML breaks instead of deleting them completely
     bodyHtml = bodyHtml.replace(/<p[^>]*>(?:\s|&nbsp;|<br\s*\/?>|<\/?span[^>]*>)*<\/p>/gi, '');
 
     // 5. Process EVERY tag to handle classes AND restore native email formatting
@@ -506,7 +514,7 @@ function getTemplateContent(templateId) {
       let googleClassStyles = "";
       let forcedOverrides = "";
 
-      // --- LAYER 1: Base Email Resets (Sourced from Native Gmail Output) ---
+      // LAYER 1: Base Email Resets 
       if (lowerTag === 'table') {
         baseResets = "border-collapse: collapse; border-spacing: 0; ";
       } else if (lowerTag === 'td' || lowerTag === 'th') {
@@ -515,33 +523,23 @@ function getTemplateContent(templateId) {
         baseResets = "display: block; max-width: 100%; height: auto; border: 0; text-decoration: none; ";
       } else if (lowerTag === 'a') {
         baseResets = "text-decoration: underline; color: #1155cc; "; 
-        
-        // --- NEW: URL SANITIZER ---
-        // Strip Google Docs redirect wrappers to preserve UTMs and avoid spam filters
         const hrefMatch = attributes.match(/href="([^"]+)"/i);
         if (hrefMatch) {
           const rawHref = hrefMatch[1];
           if (rawHref.includes('google.com/url?q=')) {
             const qMatch = rawHref.match(/[?&]q=([^&]+)/);
-            if (qMatch) {
-              // Extract the true URL and decode the UTM parameters
-              const cleanUrl = decodeURIComponent(qMatch[1]);
-              // Replace the dirty redirect link with the clean URL
-              attributes = attributes.replace(`href="${rawHref}"`, `href="${cleanUrl}"`);
-            }
+            if (qMatch) attributes = attributes.replace(`href="${rawHref}"`, `href="${decodeURIComponent(qMatch[1])}"`);
           }
         }
       } else if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(lowerTag)) {
-        // FIX 1: Explicitly added padding: 0 to override any client/Google defaults
         baseResets = "margin: 14pt 0 4pt 0; padding: 0; line-height: 1.38; ";
       } else if (lowerTag === 'p') {
-        // FIX 1: Explicitly added padding: 0 to override any client/Google defaults
         baseResets = "margin: 12pt 0 12pt 0; padding: 0; line-height: 1.38; "; 
       } else if (lowerTag === 'span') {
         baseResets = "white-space: pre-wrap; vertical-align: baseline; ";
       }
 
-      // --- LAYER 2: Google Docs User Styles ---
+      // LAYER 2: Google Docs User Styles 
       const classMatch = attributes.match(/class="([^"]+)"/i);
       if (classMatch) {
         const classes = classMatch[1].split(/\s+/);
@@ -554,7 +552,7 @@ function getTemplateContent(templateId) {
         });
       }
 
-      // --- LAYER 3: Forced Overrides (Fixing Google Docs Quirks) ---
+      // LAYER 3: Forced Overrides
       if (lowerTag === 'ul') {
         forcedOverrides = "margin: 0 !important; padding: 0 0 0 40px !important; list-style-type: disc !important; ";
       } else if (lowerTag === 'ol') {
@@ -563,29 +561,23 @@ function getTemplateContent(templateId) {
         forcedOverrides = "margin-left: 0 !important; padding-left: 0 !important; margin-bottom: 0 !important; list-style-position: outside !important; display: list-item !important; ";
       }
 
-      // --- NEW: THE SANITIZER ENGINE ---
-      // 1. Line-Height Sanitizer
+      // THE SANITIZER ENGINE
       if (lowerTag === 'span') {
         googleClassStyles = googleClassStyles.replace(/line-height:[^;]+;?/gi, '');
       } else {
         googleClassStyles = googleClassStyles.replace(/line-height:\s*1(?:\.0*)?[^;]*;?/gi, '');
       }
 
-      // 2. Vertical Padding Sanitizer
-      // Strip Google's rigid top/bottom padding from text blocks so our native margins control the rhythm
       if (['p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(lowerTag)) {
-        const paddingRegex = /\b(?:padding|padding-top|padding-bottom)\s*:[^;]+;?/gi;
-        googleClassStyles = googleClassStyles.replace(paddingRegex, '');
+        googleClassStyles = googleClassStyles.replace(/\b(?:padding|padding-top|padding-bottom)\s*:[^;]+;?/gi, '');
       }
 
-      // Combine layers in strict hierarchy
       let finalCombinedStyles = (baseResets + googleClassStyles + forcedOverrides).trim();
 
       if (!finalCombinedStyles) {
         return classMatch ? fullMatch.replace(/\s+class="[^"]+"/i, '') : fullMatch;
       }
 
-      // Check for existing inline styles and merge them
       const styleAttrRegex = /style="([^"]*)"/i;
       const existingStyleMatch = attributes.match(styleAttrRegex);
       let newAttributes = attributes;
@@ -597,7 +589,6 @@ function getTemplateContent(templateId) {
         existingStyles = existingStyles.replace(/background-color:\s*(?:#ffffff|rgb\(255,\s*255,\s*255\)|transparent)[^;]*;?/gi, '');
         existingStyles = existingStyles.replace(/color:\s*(?:#000000|#000|rgb\(0,\s*0,\s*0\))[^;]*;?/gi, '');
         
-        // Apply Sanitizers to existing inline styles as well
         if (lowerTag === 'span') {
           existingStyles = existingStyles.replace(/line-height:[^;]+;?/gi, '');
         } else {
@@ -605,8 +596,7 @@ function getTemplateContent(templateId) {
         }
 
         if (['p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(lowerTag)) {
-          const paddingRegex = /\b(?:padding|padding-top|padding-bottom)\s*:[^;]+;?/gi;
-          existingStyles = existingStyles.replace(paddingRegex, '');
+          existingStyles = existingStyles.replace(/\b(?:padding|padding-top|padding-bottom)\s*:[^;]+;?/gi, '');
         }
 
         if (!existingStyles.endsWith(';')) existingStyles += ';';
@@ -623,9 +613,29 @@ function getTemplateContent(templateId) {
       return `<${tag}${newAttributes}>`;
     });
 
-    // Wrap in a clean div with a standard color reset to ensure it looks native everywhere
-    return `<div style="${bodyStyles} color: inherit; word-wrap: break-word; -webkit-font-smoothing: antialiased;">${inlinedHtml.trim()}</div>`;
-
+    // --- FIX 4: ENTERPRISE HTML SHELL ---
+    // Protect the global body styles from being overwritten by webmail clients
+    const wrappedContent = `<div style="${bodyStyles.replace(/"/g, "'")} color: inherit; word-wrap: break-word; -webkit-font-smoothing: antialiased;">
+      ${inlinedHtml.trim()}
+    </div>`;
+    
+    // Return preview-friendly HTML or full email HTML
+    if (forPreview) {
+      return wrappedContent; // Just the div for dangerouslySetInnerHTML
+    }
+    
+    // Full email with proper shell
+    return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  </head>
+  <body style="margin: 0; padding: 0; -webkit-text-size-adjust: 100%; background-color: transparent;">
+    ${wrappedContent}
+  </body>
+</html>`;
+    
   } catch (error) {
     Logger.log(`Error retrieving template content: ${error.message}\nStack: ${error.stack}`);
     return "";
@@ -650,7 +660,7 @@ function getGmailSignature(fromEmail) {
 
 function generateEmailPreview(sheetId, templateId, tabName, rowIndex = 0) {
   try {
-    let templateText = getTemplateContent(templateId);
+    let templateText = getTemplateContent(templateId, true); // Pass true for preview mode
     const recipientData = getSheetData(sheetId, tabName); 
     
     const totalRows = recipientData.length;
