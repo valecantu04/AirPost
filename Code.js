@@ -35,16 +35,6 @@ function setTemplateFolderId(newFolderId) {
   userProperties.setProperty("templateFolderId", newFolderId);
 }
 
-function getSubjectLine() {
-  return userProperties.getProperty("subjectLine") || '';
-}
-
-function setSubjectLine(subjectLine) {
-  if (!subjectLine) {
-    throw new Error("Invalid subject line. Please provide subject for the email.");
-  }
-  userProperties.setProperty("subjectLine", subjectLine);
-}
 
 function getTemplateFolderName() {
   try {
@@ -189,7 +179,7 @@ function generateAudienceSheet(templateId, folderId) {
     });
     
     // Add system tracking columns to the end
-    headers.push('Attachments', 'Timestamp', 'Template');
+    headers.push('CC', 'Attachments', 'Timestamp', 'Template');
     
     // 3. Extract and format the user's name from their email address
     const userEmail = Session.getActiveUser().getEmail();
@@ -696,22 +686,6 @@ function generateEmailPreview(sheetId, templateId, tabName, rowIndex = 0) {
   }
 }
 
-function cleanup() {
-  try {
-    const subjectLine = userProperties.getProperty('subjectLine');
-    
-    if (!subjectLine) {
-      Logger.log("No subject line found to reset.");
-      return;
-    }
-    
-    userProperties.deleteProperty('subjectLine');
-    Logger.log("✅ Subject line reset AFTER emails were sent.");
-    
-  } catch (err) {
-    Logger.log('❌ Failed to reset subject line with error: %s', err.message);
-  }
-}
 
 function extractId(link) {
     let match = link.match(/[-\w]{25,}/);
