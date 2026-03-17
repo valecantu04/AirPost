@@ -37,3 +37,38 @@ These three functions were never called from the client. The subject line is man
 ### ⏳ #3 — `sendEmailsWithSheet`: `fromEmail` not re-validated server-side
 **Description:** `fromEmail` arrives from the client and is passed directly to `GmailApp.sendEmail(..., { from: fromEmail })` with no server-side check that it belongs to the executing user's verified aliases.
 **Fix:** Re-fetch the user's aliases inside `sendEmailsWithSheet` and confirm `fromEmail` is in the list before proceeding.
+
+---
+
+## valecantu04/email_style_fidelity
+
+**Goal:** Emails must look identical to their preview. Styling must be fully preserved in the sent email, including for Gemini-generated templates. The Gmail signature must appear at the bottom with its original styling intact.
+
+**Root cause:** Three compounding bugs. The signature is appended after `</html>`, which causes email clients to reparse and discard inlined styles. The preview masks this by rendering inside Tailwind's styled div (ambient styles bleed in, making it look correct when it isn't). The `forPreview` quote bug compounds this for Gemini templates that use quoted font names.
+
+### Step 1 — Fix signature insertion (`Code.js`, `sendEmailsWithSheet` line 303)
+Change `let emailContent = templateText + userSignature;` to insert the signature inside `</body>` rather than after `</html>`:
+```js
+let emailContent = userSignature
+  ? templateText.replace(/<\/body>/, userSignature + '</body>')
+  : templateText;
+```
+The signature is placed after the template's `</div>` but before `</body>`, so it is **not** inside the `bodyStyles` wrapper div and its own inline styles are unaffected.
+
+### Step 2 — Always normalize CSS `"` → `'` (`Code.js`, `getTemplateContent` line 466)
+Remove the `if (!forPreview)` guard so quote normalization runs in both preview and send paths:
+```js
+rules = rules.replace(/"/g, "'");
+```
+
+### Step 3 — Replace `dangerouslySetInnerHTML` with `<iframe srcDoc>` (`script.html`, line 757)
+The preview renders into the app's Tailwind-styled div, causing ambient styles to bleed in. Replace with an isolated iframe:
+```jsx
+<iframe
+  srcDoc={previewData?.html || '<p style="color:#94a3b8;text-align:center;margin-top:2.5rem;font-style:italic">Click "Gen Preview" to render template.</p>'}
+  sandbox="allow-same-origin"
+  style={{ width: '100%', height: '100%', border: 'none', display: 'block', flexGrow: 1 }}
+  title="Email Preview"
+/>
+```
+`sandbox="allow-same-origin"` blocks script execution while preserving correct CSS and image rendering. The iframe is a fully isolated context — no Tailwind, no ambient styles — matching what Gmail sees.

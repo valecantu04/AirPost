@@ -296,7 +296,9 @@ function sendEmailsWithSheet(sheetId, templateId, subject, tabName, fromEmail, f
         recipient['Name'] = formatName(recipient['Name']);
       }
 
-      let emailContent = templateText + userSignature;
+      let emailContent = userSignature
+        ? templateText.replace(/<\/body>/, userSignature + '</body>')
+        : templateText;
       let personalizedSubject = subject;
 
       Object.keys(recipient).forEach(key => {
@@ -414,7 +416,7 @@ function extractKeywordsFromTemplate(templateId) {
   return [...new Set([...templateText.matchAll(/{{(.*?)}}/g)].map(match => match[1]))];
 }
 
-function getTemplateContent(templateId, forPreview = false) {
+function getTemplateContent(templateId) {
   try {
     const url = `https://docs.google.com/feeds/download/documents/export/Export?id=${templateId}&exportFormat=html`;
     const param = {
@@ -459,9 +461,7 @@ function getTemplateContent(templateId, forPreview = false) {
     let match;
     while ((match = ruleRegex.exec(cssContent)) !== null) {
       let rules = match[2].trim().replace(/\s+/g, ' '); 
-      if (!forPreview) {
-        rules = rules.replace(/"/g, "'"); // For preview, use double quotes
-      }
+      rules = rules.replace(/"/g, "'");
       
       
       // NATIVE REFINEMENT 1: Strip hardcoded white/transparent backgrounds. 
@@ -657,7 +657,7 @@ function generateEmailPreview(sheetId, templateId, tabName, rowIndex = 0) {
     const cacheKey = 'preview_' + templateId;
     let templateText = cache.get(cacheKey);
     if (!templateText) {
-      templateText = getTemplateContent(templateId, true);
+      templateText = getTemplateContent(templateId);
       try { cache.put(cacheKey, templateText, 600); } catch (e) { /* payload too large to cache, fetch live each time */ }
     }
     const recipientData = getSheetData(sheetId, tabName);
