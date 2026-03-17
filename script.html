@@ -11,6 +11,12 @@
         });
     };
 
+    const WORKFLOW_STEPS = [
+        { id: 'setup', label: 'Campaign Setup' },
+        { id: 'audience', label: 'Audience' },
+        { id: 'preview', label: 'Preview & Send' },
+    ];
+
     const Stepper = ({ steps, currentStep, onStepClick }) => {
         // Mathematically calculate progress width based on dynamic step array
         const totalSteps = steps.length;
@@ -98,6 +104,21 @@
         );
     };
 
+    const HighlightedSubject = ({ text }) => {
+        if (!text) return <span className="subject-placeholder">(Enter subject above)</span>;
+        const parts = text.split(/({{.*?}})/g);
+        return (
+            <span>
+                {parts.map((part, i) => {
+                    if (part.startsWith('{{') && part.endsWith('}}')) {
+                        return <span key={i} className="bg-cyan-100 text-cyan-800 px-1 rounded font-semibold">{part.replace(/[{}]/g, '')}</span>;
+                    }
+                    return <span key={i}>{part}</span>;
+                })}
+            </span>
+        );
+    };
+
     const AirPostApp = () => {
         // --- GLOBAL STATE ---
         const [step, setStep] = useState(1);
@@ -105,12 +126,6 @@
         const [globalData, setGlobalData] = useState({ userEmail: '', totalSent: 0 });
         const [toasts, setToasts] = useState([]);
         
-        const WORKFLOW_STEPS = [
-        { id: 'setup', label: 'Campaign Setup' },
-        { id: 'audience', label: 'Audience' },
-        { id: 'preview', label: 'Preview & Send' }
-        
-        ];
         // Get logo from window
         const logoSvg = window.LOGO_SVG || '';
 
@@ -120,6 +135,7 @@
         const [selectedAlias, setSelectedAlias] = useState('');
         const [selectedTemplate, setSelectedTemplate] = useState('');
         const [showFolderSettings, setShowFolderSettings] = useState(false);
+        const [isUpdatingFolder, setIsUpdatingFolder] = useState(false);
         const [folderName, setFolderName] = useState('');
         const [currentFolderId, setCurrentFolderId] = useState('');
         const [folderIdInput, setFolderIdInput] = useState('');
@@ -147,25 +163,6 @@
             setModal({ isOpen: true, title, message, onConfirm, isDanger });
         const closeModal = () => setModal(prev => ({ ...prev, isOpen: false }));
         const handleModalConfirm = () => { modal.onConfirm?.(); closeModal(); };
-
-        // --- UI COMPONENT: Live Subject Highlighter ---
-        const HighlightedSubject = ({ text }) => {
-            if (!text) return <span className="subject-placeholder">(Enter subject above)</span>;
-            
-            // Split by {{Variable}} preserving the match
-            const parts = text.split(/({{.*?}})/g);
-            return (
-                <span>
-                    {parts.map((part, i) => {
-                        if (part.startsWith('{{') && part.endsWith('}}')) {
-                            // Render variables with a cyan pill highlight
-                            return <span key={i} className="bg-cyan-100 text-cyan-800 px-1 rounded font-semibold">{part.replace(/[{}]/g, '')}</span>;
-                        }
-                        return <span key={i}>{part}</span>; // Render normal text
-                    })}
-                </span>
-            );
-        };
 
         // --- STEPPER NAVIGATION ---
         const handleStepperClick = (targetStep) => {
@@ -234,17 +231,18 @@
             // If the user pasted a full URL, extract the ID. Otherwise, assume they pasted the raw ID.
             const idMatch = folderIdInput.match(/[-\w]{25,}/);
             const finalFolderId = idMatch ? idMatch[0] : folderIdInput.trim();
+            setIsUpdatingFolder(true);
             try {
                 await runGas('setTemplateFolderId', finalFolderId);
                 addToast('Source folder updated!', 'success');
-                
+
                 // --- RE-FETCH DATA UPON SUCCESSFUL FOLDER CHANGE ---
                 const [newTemplates, newFName, newFId] = await Promise.all([
                     runGas('getTemplates'),
                     runGas('getTemplateFolderName'),
                     runGas('getTemplateFolderId')
                 ]);
-                
+
                 setTemplates(newTemplates || []);
                 setFolderName(newFName || 'Unknown Folder');
                 setCurrentFolderId(newFId || finalFolderId);
@@ -252,6 +250,8 @@
                 setShowFolderSettings(false);
             } catch (err) {
                 addToast(err.message, 'error');
+            } finally {
+                setIsUpdatingFolder(false);
             }
         };
 
@@ -331,12 +331,27 @@
             setSendResults(null);
         }, [selectedTemplate, selectedTab]);
 
+        // 3. Keyboard navigation for preview pane (← →)
+        useEffect(() => {
+            if (step !== 3 || !previewData || isFetchingPreview) return;
+            const onKey = (e) => {
+                if (e.key === 'ArrowLeft' && previewIndex > 0)
+                    fetchPreview(previewIndex - 1);
+                if (e.key === 'ArrowRight' && previewIndex < previewData.totalRows - 1)
+                    fetchPreview(previewIndex + 1);
+            };
+            document.addEventListener('keydown', onKey);
+            return () => document.removeEventListener('keydown', onKey);
+        }, [step, previewData, previewIndex, isFetchingPreview]);
+
         const handleValidateSheet = async () => {
             if (!sheetUrl || !selectedTab) return addToast('URL and Tab required.', 'error');
             
+            const sheetIdMatch = sheetUrl.match(/[-\w]{25,}/);
+            if (!sheetIdMatch) return addToast('Invalid sheet URL.', 'error');
             setIsValidating(true);
             try {
-                const sheetId = sheetUrl.match(/[-\w]{25,}/)[0];
+                const sheetId = sheetIdMatch[0];
                 const result = await runGas('validateSheetColumns', sheetId, selectedTemplate, selectedTab);
                 
                 setValidationState({ 
@@ -355,9 +370,11 @@
 
         // --- STEP 3 LOGIC ---
         const fetchPreview = async (index) => {
+            const sheetIdMatch = sheetUrl.match(/[-\w]{25,}/);
+            if (!sheetIdMatch) return addToast('Invalid sheet URL.', 'error');
             setIsFetchingPreview(true);
             try {
-                const sheetId = sheetUrl.match(/[-\w]{25,}/)[0];
+                const sheetId = sheetIdMatch[0];
                 const res = await runGas('generateEmailPreview', sheetId, selectedTemplate, selectedTab, index);
                 setPreviewData(res);
                 setPreviewIndex(index);
@@ -378,10 +395,12 @@
         };
 
         const executeSend = async () => {
+            const sheetIdMatch = sheetUrl.match(/[-\w]{25,}/);
+            if (!sheetIdMatch) return addToast('Invalid sheet URL.', 'error');
             setIsSending(true);
             setSendResults(null);
             try {
-                const sheetId = sheetUrl.match(/[-\w]{25,}/)[0];
+                const sheetId = sheetIdMatch[0];
                 const selectedAliasObj = aliases.find(a => a.email === selectedAlias);
                 
                 const res = await runGas('sendEmailsWithSheet', sheetId, selectedTemplate, subjectLine, selectedTab, selectedAlias, selectedAliasObj.displayName);
@@ -597,7 +616,9 @@
                                                     <div className="flex gap-2">
                                                         {/* UPDATED PLACEHOLDER TO REFLECT NEW CAPABILITY */}
                                                         <input type="text" placeholder="Paste Folder URL or ID here" className="form-input !py-2 text-sm flex-1 font-mono" value={folderIdInput} onChange={e => setFolderIdInput(e.target.value)} />
-                                                        <button onClick={handleUpdateFolder} className="btn btn-secondary !py-2">Update</button>
+                                                        <button onClick={handleUpdateFolder} disabled={isUpdatingFolder} className="btn btn-secondary !py-2">
+                                                            {isUpdatingFolder ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Updating...</> : 'Update'}
+                                                        </button>
                                                     </div>
                                                 </div>
                                             )}
@@ -822,7 +843,7 @@
                                         
                                         <button 
                                             onClick={handleSendEmails} 
-                                            disabled={isSending || !subjectLine} 
+                                            disabled={isSending || !subjectLine.trim()}
                                             className="btn btn-primary !py-3 !px-6 !text-sm shadow-[0_0_15px_rgba(34,211,238,0.3)]"
                                         >
                                             {isSending ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Sending...</> : <><i className="fa-solid fa-paper-plane"></i> Dispatch Emails</>}

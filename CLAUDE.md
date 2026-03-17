@@ -61,4 +61,4 @@ When generating or modifying code in this repository, you MUST adhere to the fol
 - **Do Not Guess:** If a user asks for a feature, search the codebase first to understand how existing features are implemented.
 - **Plan First:** Before modifying `Code.js` or `script.html`, write a brief step-by-step plan. Wait for user approval before writing the code.
 - **Manual Sync:** Do NOT run `clasp push` automatically unless explicitly instructed. Let the user review the code first.
-- **Log Tasks:** Keep a log of tasks and our progress in `tasks.md` for each session.
+- **Log Tasks:** Keep a log of pending and completed tasks and our progress in `tasks.md` for each session. If it is not clear, ask the user what branch these tasks should be logged under.
