@@ -24,51 +24,31 @@ These three functions were never called from the client. The subject line is man
 
 ---
 
-## Pending
+## Completed (continued)
 
-### ⏳ #1 — `getSendAsAliases`: Operator precedence admits unverified aliases
-**Description:** The filter `alias.sendAsEmail && alias.isPrimary || alias.isDefault || alias.verificationStatus === 'accepted'` evaluates as `(sendAsEmail && isPrimary) || isDefault || verified` due to JS operator precedence. An alias marked `isDefault` passes through with no email address or verification check.
-**Fix:** Add parentheses: `alias.sendAsEmail && (alias.isPrimary || alias.isDefault || alias.verificationStatus === 'accepted')`.
+### ✅ #1 — `getSendAsAliases`: Operator precedence admits unverified aliases
+**Fix:** Added parentheses so `alias.sendAsEmail` is always required: `alias.sendAsEmail && (alias.isPrimary || alias.isDefault || alias.verificationStatus === 'accepted')`.
 
-### ⏳ #2 — `getTemplateContent`: CSS quote replacement skipped in preview mode
-**Description:** `if (!forPreview)` replaces `"` → `'` in CSS values only during actual sends. In preview mode, CSS values containing `"` (e.g. `font-family: "Inter"`) are injected literally into `style="..."` attributes, producing malformed HTML and broken preview rendering.
-**Fix:** Remove the `!forPreview` condition so the replacement always runs.
+### ✅ #2 — `getTemplateContent`: CSS quote replacement skipped in preview mode
+**Fix:** Removed the `forPreview` parameter entirely from `getTemplateContent`. Quote normalization (`"` → `'`) now always runs. All call sites updated.
 
-### ⏳ #3 — `sendEmailsWithSheet`: `fromEmail` not re-validated server-side
-**Description:** `fromEmail` arrives from the client and is passed directly to `GmailApp.sendEmail(..., { from: fromEmail })` with no server-side check that it belongs to the executing user's verified aliases.
-**Fix:** Re-fetch the user's aliases inside `sendEmailsWithSheet` and confirm `fromEmail` is in the list before proceeding.
+### ✅ #3 — `sendEmailsWithSheet`: `fromEmail` not re-validated server-side
+**Fix:** Added authoritative alias check at the top of `sendEmailsWithSheet` using `Gmail.Users.Settings.SendAs.list('me')` directly. Throws before any sheet access if `fromEmail` is not in the user's alias list.
 
 ---
 
 ## valecantu04/email_style_fidelity
 
-**Goal:** Emails must look identical to their preview. Styling must be fully preserved in the sent email, including for Gemini-generated templates. The Gmail signature must appear at the bottom with its original styling intact.
+**Goal:** Emails must look identical to their preview. Styling must be fully preserved in the sent email, including for Gemini-generated templates. The Gmail signature must appear at the bottom with its original styling intact. All fonts must render consistently across desktop and mobile as native Gmail (Arial).
 
-**Root cause:** Three compounding bugs. The signature is appended after `</html>`, which causes email clients to reparse and discard inlined styles. The preview masks this by rendering inside Tailwind's styled div (ambient styles bleed in, making it look correct when it isn't). The `forPreview` quote bug compounds this for Gemini templates that use quoted font names.
+### ✅ Step 1 — Fix signature insertion (`Code.js`)
+`let emailContent = templateText + userSignature` was appending the signature after `</html>`, causing email clients to reparse and discard inlined styles. Fixed with `templateText.replace(/<\/body>/, userSignature + '</body>')`.
 
-### Step 1 — Fix signature insertion (`Code.js`, `sendEmailsWithSheet` line 303)
-Change `let emailContent = templateText + userSignature;` to insert the signature inside `</body>` rather than after `</html>`:
-```js
-let emailContent = userSignature
-  ? templateText.replace(/<\/body>/, userSignature + '</body>')
-  : templateText;
-```
-The signature is placed after the template's `</div>` but before `</body>`, so it is **not** inside the `bodyStyles` wrapper div and its own inline styles are unaffected.
+### ✅ Step 2 — Remove `forPreview` CSS quote guard (`Code.js`)
+Folded into #2 above. `forPreview` parameter removed entirely; quote normalization always runs.
 
-### Step 2 — Always normalize CSS `"` → `'` (`Code.js`, `getTemplateContent` line 466)
-Remove the `if (!forPreview)` guard so quote normalization runs in both preview and send paths:
-```js
-rules = rules.replace(/"/g, "'");
-```
+### ✅ Step 3 — Replace `dangerouslySetInnerHTML` with `<iframe srcDoc>` (`script.html`)
+Preview rendered inside the app's Tailwind div, causing ambient styles to bleed in. Replaced with `<iframe srcDoc sandbox="allow-same-origin">` for a fully isolated rendering context matching what Gmail sees.
 
-### Step 3 — Replace `dangerouslySetInnerHTML` with `<iframe srcDoc>` (`script.html`, line 757)
-The preview renders into the app's Tailwind-styled div, causing ambient styles to bleed in. Replace with an isolated iframe:
-```jsx
-<iframe
-  srcDoc={previewData?.html || '<p style="color:#94a3b8;text-align:center;margin-top:2.5rem;font-style:italic">Click "Gen Preview" to render template.</p>'}
-  sandbox="allow-same-origin"
-  style={{ width: '100%', height: '100%', border: 'none', display: 'block', flexGrow: 1 }}
-  title="Email Preview"
-/>
-```
-`sandbox="allow-same-origin"` blocks script execution while preserving correct CSS and image rendering. The iframe is a fully isolated context — no Tailwind, no ambient styles — matching what Gmail sees.
+### ✅ Step 4 — Font normalization (`Code.js`)
+Added `normalizeFontFamily()` helper that replaces all `font-family` declarations with `Arial, Helvetica, sans-serif`. Applied at all three CSS processing locations in `getTemplateContent` (cssMap entries, bodyStyles, existing inline styles). Gmail signatures are unaffected as they are inserted after `getTemplateContent` returns.
