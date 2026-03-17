@@ -81,6 +81,23 @@
         );
     };
 
+    const ConfirmModal = ({ isOpen, title, message, onConfirm, onClose, isDanger }) => {
+        if (!isOpen) return null;
+        return (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+                <div className="wizard-layout relative z-10 w-full max-w-sm p-6 flex flex-col gap-4">
+                    <h2 className="text-lg font-bold text-white m-0">{title}</h2>
+                    <p className="text-[var(--text-secondary)] text-sm m-0">{message}</p>
+                    <div className="flex justify-end gap-3 pt-2">
+                        <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+                        <button className={`btn ${isDanger ? 'btn-danger' : 'btn-primary'}`} onClick={onConfirm}>Confirm</button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     const AirPostApp = () => {
         // --- GLOBAL STATE ---
         const [step, setStep] = useState(1);
@@ -123,6 +140,13 @@
         const [isFetchingPreview, setIsFetchingPreview] = useState(false);
         const [isSending, setIsSending] = useState(false);
         const [sendResults, setSendResults] = useState(null);
+
+        // Modal State
+        const [modal, setModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null, isDanger: false });
+        const openModal = ({ title, message, onConfirm, isDanger = false }) =>
+            setModal({ isOpen: true, title, message, onConfirm, isDanger });
+        const closeModal = () => setModal(prev => ({ ...prev, isOpen: false }));
+        const handleModalConfirm = () => { modal.onConfirm?.(); closeModal(); };
 
         // --- UI COMPONENT: Live Subject Highlighter ---
         const HighlightedSubject = ({ text }) => {
@@ -240,8 +264,13 @@
         };
 
         // --- STEP 2 LOGIC ---
-        const handleExtractTabs = async () => {
+        const handleExtractTabs = useCallback(async () => {
             if (!sheetUrl) return;
+            // Invalidate downstream state now that a real fetch is beginning
+            setValidationState({ status: 'idle', details: null });
+            setPreviewData(null);
+            setPreviewIndex(0);
+            setSendResults(null);
             const sheetIdMatch = sheetUrl.match(/[-\w]{25,}/);
             if (!sheetIdMatch) {
                 addToast('Invalid Google Sheet URL', 'error');
@@ -261,7 +290,7 @@
             } finally {
                 setIsFetchingTabs(false); // --- END LOADING ---
             }
-        };
+        }, [sheetUrl]);
 
         // --- HANDLE SHEET GENERATION ---
         const handleGenerateSheet = async () => {
@@ -293,13 +322,14 @@
         }, [sheetUrl]);
 
         // 2. CORNER CASE FIX: Centralized State Invalidator
-        // If the Template, Sheet URL, or Tab changes, we MUST wipe all downstream progress.
+        // If the Template or Tab changes, wipe all downstream progress.
+        // sheetUrl changes are handled inside handleExtractTabs after debounce resolves.
         useEffect(() => {
             setValidationState({ status: 'idle', details: null });
             setPreviewData(null);
             setPreviewIndex(0);
             setSendResults(null);
-        }, [sheetUrl, selectedTemplate, selectedTab]);
+        }, [selectedTemplate, selectedTab]);
 
         const handleValidateSheet = async () => {
             if (!sheetUrl || !selectedTab) return addToast('URL and Tab required.', 'error');
@@ -347,12 +377,7 @@
             fetchPreview(0); 
         };
 
-        const handleSendEmails = async () => {
-            // CORNER CASE FIX: Prevent whitespace-only subjects
-            if (!subjectLine.trim()) return addToast('Subject is required.', 'error');
-            
-            if (!confirm("Are you sure you want to send emails? This cannot be undone.")) return;
-
+        const executeSend = async () => {
             setIsSending(true);
             setSendResults(null);
             try {
@@ -386,10 +411,19 @@
             }
         };
 
+        const handleSendEmails = () => {
+            // CORNER CASE FIX: Prevent whitespace-only subjects
+            if (!subjectLine.trim()) return addToast('Subject is required.', 'error');
+            openModal({
+                title: 'Dispatch Emails',
+                message: 'Are you sure you want to send emails? This cannot be undone.',
+                onConfirm: executeSend,
+                isDanger: true,
+            });
+        };
+
         // --- RESET LOGIC ---
-        const handleStartOver = () => {
-            if (!confirm("Are you sure you want to start over? All current progress will be lost.")) return;
-            
+        const executeStartOver = () => {
             // Reset to step 1
             setStep(1);
             
@@ -416,10 +450,26 @@
             addToast('Campaign reset successfully.', 'success');
         };
 
+        const handleStartOver = () => {
+            openModal({
+                title: 'Start Over',
+                message: 'Are you sure you want to start over? All current progress will be lost.',
+                onConfirm: executeStartOver,
+            });
+        };
+
         const getTemplateName = () => templates.find(t => t.id === selectedTemplate)?.name || 'Pending...';
 
         return (
             <div className="flex flex-col h-screen">
+                <ConfirmModal
+                    isOpen={modal.isOpen}
+                    title={modal.title}
+                    message={modal.message}
+                    onConfirm={handleModalConfirm}
+                    onClose={closeModal}
+                    isDanger={modal.isDanger}
+                />
                 {/* HEADER */}
                 <header className="border-b border-[var(--border-moderate)] py-3 px-6 mb-4 flex justify-between items-center bg-[var(--surface-primary)]/40 backdrop-blur-md sticky top-0 z-50 shrink-0">
                     <div className="flex flex-col">

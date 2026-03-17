@@ -52,3 +52,22 @@ Preview rendered inside the app's Tailwind div, causing ambient styles to bleed 
 
 ### ✅ Step 4 — Font normalization (`Code.js`)
 Added `normalizeFontFamily()` helper that replaces all `font-family` declarations with `Arial, Helvetica, sans-serif`. Applied at all three CSS processing locations in `getTemplateContent` (cssMap entries, bodyStyles, existing inline styles). Gmail signatures are unaffected as they are inserted after `getTemplateContent` returns.
+
+---
+
+## valecantu04/styling_fix_take2 — Frontend UI/UX
+
+### ✅ #10 — Remove dead `.header-powered-by` CSS rule (`styles.html`)
+### ✅ #11 — Preview pane chrome: replace `slate-*` Tailwind classes with CSS design token classes (`styles.html`, `script.html`)
+### ✅ #12 — Migrate inline `style={{}}` objects to named CSS classes (`styles.html`, `script.html`)
+
+### ✅ #1 — Replace `window.confirm()` with styled modal (`script.html`, `styles.html`)
+Both "Dispatch Emails" and "Start Over" used native browser dialogs. Replaced with a reusable `ConfirmModal` component.
+**Fix:** Added `.btn-danger` to `styles.html`. Added `modal` state + `openModal`/`closeModal`/`handleModalConfirm` helpers. Extracted `executeSend()` and `executeStartOver()`. Added `ConfirmModal` component before `AirPostApp`; rendered in JSX with `fixed` overlay + `wizard-layout` card.
+
+### ✅ #2 — State invalidation fires on every URL keystroke (`script.html`)
+The `useEffect` invalidator was wiping validation state on every character typed, not after debounce resolves.
+**Fix:** Removed `sheetUrl` from the invalidator's dependency array. Moved the four `set*` invalidation calls to the top of `handleExtractTabs` so they fire only after the debounce resolves.
+
+### ✅ #3 — `handleExtractTabs` stale closure risk (`script.html`)
+**Fix:** Wrapped in `useCallback([sheetUrl])` to prevent stale closure bugs.
