@@ -35,16 +35,6 @@ function setTemplateFolderId(newFolderId) {
   userProperties.setProperty("templateFolderId", newFolderId);
 }
 
-function getSubjectLine() {
-  return userProperties.getProperty("subjectLine") || '';
-}
-
-function setSubjectLine(subjectLine) {
-  if (!subjectLine) {
-    throw new Error("Invalid subject line. Please provide subject for the email.");
-  }
-  userProperties.setProperty("subjectLine", subjectLine);
-}
 
 function getTemplateFolderName() {
   try {
@@ -189,7 +179,7 @@ function generateAudienceSheet(templateId, folderId) {
     });
     
     // Add system tracking columns to the end
-    headers.push('Attachments', 'Timestamp', 'Template');
+    headers.push('CC', 'Attachments', 'Timestamp', 'Template');
     
     // 3. Extract and format the user's name from their email address
     const userEmail = Session.getActiveUser().getEmail();
@@ -314,7 +304,6 @@ function sendEmailsWithSheet(sheetId, templateId, subject, tabName, fromEmail, f
         emailContent = emailContent.replace(regex, recipient[key] || '');
         personalizedSubject = personalizedSubject.replace(regex, recipient[key] || '');
       });
-      emailContent = emailContent.replace(/<img/g, '<img style="max-width: 100%; height: auto;"');
       // --- NEW ATTACHMENT LOGIC ---
       let attachments = [];
       const attachmentIdsString = recipient["Attachments"]; // Get value from "Attachments" column
@@ -425,7 +414,7 @@ function extractKeywordsFromTemplate(templateId) {
   return [...new Set([...templateText.matchAll(/{{(.*?)}}/g)].map(match => match[1]))];
 }
 
-function getTemplateContent(templateId) {
+function getTemplateContent(templateId, forPreview = false) {
   try {
     const url = `https://docs.google.com/feeds/download/documents/export/Export?id=${templateId}&exportFormat=html`;
     const param = {
@@ -470,6 +459,10 @@ function getTemplateContent(templateId) {
     let match;
     while ((match = ruleRegex.exec(cssContent)) !== null) {
       let rules = match[2].trim().replace(/\s+/g, ' '); 
+      if (!forPreview) {
+        rules = rules.replace(/"/g, "'"); // For preview, use double quotes
+      }
+      
       
       // NATIVE REFINEMENT 1: Strip hardcoded white/transparent backgrounds. 
       // This allows the email to seamlessly adapt to the recipient's Dark Mode.
@@ -624,9 +617,19 @@ function getTemplateContent(templateId) {
     });
 
     // Wrap in a clean div with a standard color reset to ensure it looks native everywhere
-    return `<div style="${bodyStyles} color: inherit; word-wrap: break-word; -webkit-font-smoothing: antialiased;">${inlinedHtml.trim()}</div>`;
-
-  } catch (error) {
+    return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="x-apple-disable-message-reformatting">
+  </head>
+  <body style="margin: 0; padding: 0; -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; background-color: transparent;">
+    <div style="${bodyStyles.replace(/"/g, "'")} color: inherit; word-wrap: break-word; -webkit-font-smoothing: antialiased;">
+      ${inlinedHtml.trim()}
+    </div>
+  </body>
+</html>`;  } catch (error) {
     Logger.log(`Error retrieving template content: ${error.message}\nStack: ${error.stack}`);
     return "";
   }
@@ -650,8 +653,14 @@ function getGmailSignature(fromEmail) {
 
 function generateEmailPreview(sheetId, templateId, tabName, rowIndex = 0) {
   try {
-    let templateText = getTemplateContent(templateId);
-    const recipientData = getSheetData(sheetId, tabName); 
+    const cache = CacheService.getUserCache();
+    const cacheKey = 'preview_' + templateId;
+    let templateText = cache.get(cacheKey);
+    if (!templateText) {
+      templateText = getTemplateContent(templateId, true);
+      try { cache.put(cacheKey, templateText, 600); } catch (e) { /* payload too large to cache, fetch live each time */ }
+    }
+    const recipientData = getSheetData(sheetId, tabName);
     
     const totalRows = recipientData.length;
     if (totalRows === 0) {
@@ -683,22 +692,6 @@ function generateEmailPreview(sheetId, templateId, tabName, rowIndex = 0) {
   }
 }
 
-function cleanup() {
-  try {
-    const subjectLine = userProperties.getProperty('subjectLine');
-    
-    if (!subjectLine) {
-      Logger.log("No subject line found to reset.");
-      return;
-    }
-    
-    userProperties.deleteProperty('subjectLine');
-    Logger.log("✅ Subject line reset AFTER emails were sent.");
-    
-  } catch (err) {
-    Logger.log('❌ Failed to reset subject line with error: %s', err.message);
-  }
-}
 
 function extractId(link) {
     let match = link.match(/[-\w]{25,}/);
