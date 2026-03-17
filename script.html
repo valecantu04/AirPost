@@ -754,7 +754,12 @@
                                             {isFetchingPreview ? (
                                                 <div className="flex items-center justify-center flex-grow p-8 bg-white"><i className="fa-solid fa-circle-notch fa-spin text-3xl text-slate-300"></i></div>
                                             ) : (
-                                                <div className="p-6 overflow-y-auto custom-scrollbar flex-grow bg-white text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: previewData?.html || '<p class="text-slate-400 italic text-center mt-10">Click "Gen Preview" to render template.</p>' }}></div>
+                                                <iframe
+                                                    srcDoc={previewData?.html || '<p style="color:#94a3b8;text-align:center;margin-top:2.5rem;font-style:italic">Click "Gen Preview" to render template.</p>'}
+                                                    sandbox="allow-same-origin"
+                                                    style={{ width: '100%', height: '100%', border: 'none', display: 'block', flexGrow: 1, padding: '1rem' }}
+                                                    title="Email Preview"
+                                                />
                                             )}
                                         </div>
                                     </div>
