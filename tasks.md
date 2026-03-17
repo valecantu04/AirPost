@@ -56,22 +56,6 @@ Added `normalizeFontFamily()` helper that replaces all `font-family` declaration
 ---
 
 ## valecantu04/styling_fix_take2 — Frontend UI/UX
-
-### ✅ #10 — Remove dead `.header-powered-by` CSS rule (`styles.html`)
-### ✅ #11 — Preview pane chrome: replace `slate-*` Tailwind classes with CSS design token classes (`styles.html`, `script.html`)
-### ✅ #12 — Migrate inline `style={{}}` objects to named CSS classes (`styles.html`, `script.html`)
-
-### ✅ #1 — Replace `window.confirm()` with styled modal (`script.html`, `styles.html`)
-Both "Dispatch Emails" and "Start Over" used native browser dialogs. Replaced with a reusable `ConfirmModal` component.
-**Fix:** Added `.btn-danger` to `styles.html`. Added `modal` state + `openModal`/`closeModal`/`handleModalConfirm` helpers. Extracted `executeSend()` and `executeStartOver()`. Added `ConfirmModal` component before `AirPostApp`; rendered in JSX with `fixed` overlay + `wizard-layout` card.
-
-### ✅ #2 — State invalidation fires on every URL keystroke (`script.html`)
-The `useEffect` invalidator was wiping validation state on every character typed, not after debounce resolves.
-**Fix:** Removed `sheetUrl` from the invalidator's dependency array. Moved the four `set*` invalidation calls to the top of `handleExtractTabs` so they fire only after the debounce resolves.
-
-### ✅ #3 — `handleExtractTabs` stale closure risk (`script.html`)
-**Fix:** Wrapped in `useCallback([sheetUrl])` to prevent stale closure bugs.
-
 ### ✅ #4 — `HighlightedSubject` defined inside `AirPostApp` body (remount bug) (`script.html`)
 React creates a new component type reference on every parent render, causing unnecessary unmount/remount of the subject line display on every state change.
 **Fix:** Moved `HighlightedSubject` to module scope (after `ConfirmModal`), giving it a stable reference identity.
@@ -95,3 +79,42 @@ No button disable or spinner during the async folder update + re-fetch, allowing
 ### ✅ #9 — Keyboard navigation for preview pane (`script.html`)
 No way to paginate preview without clicking.
 **Fix:** Added `useEffect` that attaches a `keydown` listener on `document` when on step 3 with loaded preview data. ← → arrow keys call `fetchPreview(previewIndex ± 1)` respecting bounds. Listener cleaned up on deps-change/unmount.
+
+
+## valecantu04/frontend_improvement
+### ✅ #1 — Replace `window.confirm()` with styled modal (`script.html`, `styles.html`)
+Both "Dispatch Emails" and "Start Over" used native browser dialogs. Replaced with a reusable `ConfirmModal` component.
+**Fix:** Added `.btn-danger` to `styles.html`. Added `modal` state + `openModal`/`closeModal`/`handleModalConfirm` helpers. Extracted `executeSend()` and `executeStartOver()`. Added `ConfirmModal` component before `AirPostApp`; rendered in JSX with `fixed` overlay + `wizard-layout` card.
+
+### ✅ #2 — State invalidation fires on every URL keystroke (`script.html`)
+The `useEffect` invalidator was wiping validation state on every character typed, not after debounce resolves.
+**Fix:** Removed `sheetUrl` from the invalidator's dependency array. Moved the four `set*` invalidation calls to the top of `handleExtractTabs` so they fire only after the debounce resolves.
+
+### ✅ #3 — `handleExtractTabs` stale closure risk (`script.html`)
+**Fix:** Wrapped in `useCallback([sheetUrl])` to prevent stale closure bugs.
+
+### ✅ #10 — Remove dead `.header-powered-by` CSS rule (`styles.html`)
+### ✅ #11 — Preview pane chrome: replace `slate-*` Tailwind classes with CSS design token classes (`styles.html`, `script.html`)
+### ✅ #12 — Migrate inline `style={{}}` objects to named CSS classes (`styles.html`, `script.html`)
+
+---
+
+## valecantu04/frontend_improvement — Security & UX
+
+### ✅ #4 — Logo SVG: `dangerouslySetInnerHTML` → `<img>` data URL (`script.html`, `styles.html`)
+Rendering raw SVG via `dangerouslySetInnerHTML` allows inline `<script>` or event handlers in the SVG to execute. Converted to a `data:image/svg+xml,` URL using `encodeURIComponent` and rendered as `<img>`. Removed dead `.header-logo svg` CSS rule.
+
+### ✅ #5 — Enter key on subject line fires Gen Preview (`script.html`)
+Added `onKeyDown` handler to the subject input that calls `handleGeneratePreview()` when `e.key === 'Enter'`.
+
+### ✅ #6 — Arrow key pagination scoped away from text inputs (`script.html`)
+Refined the existing keyboard navigation `useEffect` to guard against `document.activeElement` being an INPUT, TEXTAREA, or SELECT — preventing pagination from firing while the user is typing.
+
+### ✅ #7 — Preview auto-generates when returning to Step 3 (`script.html`)
+Added a `useEffect([step])` that calls `fetchPreview(0)` when entering step 3 if `subjectLine` is filled and `previewData` is null.
+
+### ✅ #8 — "Next: Preview" disabled state hint (`script.html`)
+Wrapped the "Next: Preview" button in a flex column. Added a `"Validation required to continue"` hint below it, visible only while `validationState.status !== 'success'`.
+
+### ✅ #9 — Sidebar missing Sheet Tab row (`script.html`)
+Added a "Sheet Tab" summary item between "Audience Data" and "Subject Line" showing the selected tab name or "Pending..." if not yet set.

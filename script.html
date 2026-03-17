@@ -126,8 +126,9 @@
         const [globalData, setGlobalData] = useState({ userEmail: '', totalSent: 0 });
         const [toasts, setToasts] = useState([]);
         
-        // Get logo from window
+        // Get logo from window — converted to data URL to avoid inline SVG execution surface
         const logoSvg = window.LOGO_SVG || '';
+        const logoDataUrl = logoSvg ? `data:image/svg+xml,${encodeURIComponent(logoSvg)}` : '';
 
         // Form State
         const [aliases, setAliases] = useState([]);
@@ -331,10 +332,12 @@
             setSendResults(null);
         }, [selectedTemplate, selectedTab]);
 
-        // 3. Keyboard navigation for preview pane (← →)
+        // 3. Keyboard navigation for preview pane (← →) — scoped away from text inputs
         useEffect(() => {
             if (step !== 3 || !previewData || isFetchingPreview) return;
             const onKey = (e) => {
+                const tag = document.activeElement?.tagName;
+                if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
                 if (e.key === 'ArrowLeft' && previewIndex > 0)
                     fetchPreview(previewIndex - 1);
                 if (e.key === 'ArrowRight' && previewIndex < previewData.totalRows - 1)
@@ -343,6 +346,13 @@
             document.addEventListener('keydown', onKey);
             return () => document.removeEventListener('keydown', onKey);
         }, [step, previewData, previewIndex, isFetchingPreview]);
+
+        // 4. Auto-generate preview on step 3 entry if subject is ready and no preview loaded
+        useEffect(() => {
+            if (step === 3 && subjectLine.trim() && !previewData) {
+                fetchPreview(0);
+            }
+        }, [step]);
 
         const handleValidateSheet = async () => {
             if (!sheetUrl || !selectedTab) return addToast('URL and Tab required.', 'error');
@@ -524,7 +534,7 @@
                                 <div className="header-powered-by-label">Powered by</div>
                                 <div className="header-powered-by-brand">Red Panda Projects</div>
                             </div>
-                            <div dangerouslySetInnerHTML={{ __html: logoSvg }} className="header-logo" />
+                            {logoDataUrl && <img src={logoDataUrl} className="header-logo" alt="AirPost logo" />}
                         </div>
                     </div>
                 </header>
@@ -736,7 +746,12 @@
                                     </div>
                                     <div className="mt-6 pt-4 border-t border-[var(--border-moderate)] flex justify-between items-center shrink-0">
                                         <button onClick={() => setStep(1)} className="btn btn-secondary border-transparent"><i className="fa-solid fa-arrow-left"></i> Back</button>
-                                        <button onClick={() => setStep(3)} disabled={validationState.status !== 'success'} className="btn btn-primary">Next: Preview <i className="fa-solid fa-arrow-right"></i></button>
+                                        <div className="flex flex-col items-end gap-1">
+                                            <button onClick={() => setStep(3)} disabled={validationState.status !== 'success'} className="btn btn-primary">Next: Preview <i className="fa-solid fa-arrow-right"></i></button>
+                                            {validationState.status !== 'success' && (
+                                                <span className="text-xs text-[var(--text-disabled)]">Validation required to continue</span>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             )}
@@ -756,7 +771,7 @@
 
                                     <div className="flex-grow flex flex-col min-h-0">
                                         <div className="mb-4 flex gap-2">
-                                            <input type="text" placeholder="Email Subject Line (e.g. Hi {{Name}}!)" className="form-input flex-grow" value={subjectLine} onChange={e => setSubjectLine(e.target.value)} />
+                                            <input type="text" placeholder="Email Subject Line (e.g. Hi {{Name}}!)" className="form-input flex-grow" value={subjectLine} onChange={e => setSubjectLine(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleGeneratePreview(); }} />
                                             <button onClick={handleGeneratePreview} className="btn btn-secondary whitespace-nowrap"><i className="fa-solid fa-eye"></i> Gen Preview</button>
                                         </div>
 
@@ -884,6 +899,10 @@
                                 <div className="summary-item">
                                     <span className="summary-label">Audience Data</span>
                                     {validationState.status === 'success' ? <div className="summary-value"><i className="fa-solid fa-table text-[var(--status-success)]"></i> <span className="text-[var(--status-success)]">Sheet Validated</span></div> : <div className="summary-value pending">Pending...</div>}
+                                </div>
+                                <div className="summary-item">
+                                    <span className="summary-label">Sheet Tab</span>
+                                    {selectedTab ? <div className="summary-value"><i className="fa-solid fa-table-columns text-[var(--brand-primary)]"></i> <span className="truncate">{selectedTab}</span></div> : <div className="summary-value pending">Pending...</div>}
                                 </div>
                                 <div className="summary-item">
                                     <span className="summary-label">Subject Line</span>
