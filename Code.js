@@ -7,6 +7,12 @@ const HISTORY_SHEET_ID = "1iRLTOkHQ0OdVJCaTVT2RrzGMlkkrcJ4OgEgdHCR02jA";
 // Cache user properties service to reduce repeated calls
 const userProperties = PropertiesService.getUserProperties();
 
+// Replaces any font-family declaration with the native Gmail default.
+// Ensures consistent rendering across all email clients and devices.
+function normalizeFontFamily(css) {
+  return css.replace(/font-family\s*:[^;]+/gi, 'font-family: Arial, Helvetica, sans-serif');
+}
+
 function doGet() {
   const userEmail = Session.getActiveUser().getEmail();
   if (!userEmail) {
@@ -462,8 +468,9 @@ function getTemplateContent(templateId) {
     while ((match = ruleRegex.exec(cssContent)) !== null) {
       let rules = match[2].trim().replace(/\s+/g, ' '); 
       rules = rules.replace(/"/g, "'");
-      
-      
+      rules = normalizeFontFamily(rules);
+
+
       // NATIVE REFINEMENT 1: Strip hardcoded white/transparent backgrounds. 
       // This allows the email to seamlessly adapt to the recipient's Dark Mode.
       // (Note: It leaves custom highlight colors intact!)
@@ -481,6 +488,7 @@ function getTemplateContent(templateId) {
     bodyStyles = bodyStyles.replace(/padding:[^;]+;?/gi, '')
                            .replace(/max-width:[^;]+;?/gi, '')
                            .replace(/background-color:\s*(?:#ffffff|rgb\(255,\s*255,\s*255\)|transparent)[^;]*;?/gi, '');
+    bodyStyles = normalizeFontFamily(bodyStyles);
 
     // 4. Extract just the <body> content
     const bodyHtmlMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
@@ -601,6 +609,8 @@ function getTemplateContent(templateId) {
           const paddingRegex = /\b(?:padding|padding-top|padding-bottom)\s*:[^;]+;?/gi;
           existingStyles = existingStyles.replace(paddingRegex, '');
         }
+
+        existingStyles = normalizeFontFamily(existingStyles);
 
         if (!existingStyles.endsWith(';')) existingStyles += ';';
         
