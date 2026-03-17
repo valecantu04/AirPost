@@ -11,6 +11,12 @@
         });
     };
 
+    const WORKFLOW_STEPS = [
+        { id: 'setup', label: 'Campaign Setup' },
+        { id: 'audience', label: 'Audience' },
+        { id: 'preview', label: 'Preview & Send' },
+    ];
+
     const Stepper = ({ steps, currentStep, onStepClick }) => {
         // Mathematically calculate progress width based on dynamic step array
         const totalSteps = steps.length;
@@ -81,6 +87,38 @@
         );
     };
 
+    const ConfirmModal = ({ isOpen, title, message, onConfirm, onClose, isDanger }) => {
+        if (!isOpen) return null;
+        return (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+                <div className="wizard-layout relative z-10 w-full max-w-sm p-6 flex flex-col gap-4">
+                    <h2 className="text-lg font-bold text-white m-0">{title}</h2>
+                    <p className="text-[var(--text-secondary)] text-sm m-0">{message}</p>
+                    <div className="flex justify-end gap-3 pt-2">
+                        <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+                        <button className={`btn ${isDanger ? 'btn-danger' : 'btn-primary'}`} onClick={onConfirm}>Confirm</button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    const HighlightedSubject = ({ text }) => {
+        if (!text) return <span className="subject-placeholder">(Enter subject above)</span>;
+        const parts = text.split(/({{.*?}})/g);
+        return (
+            <span>
+                {parts.map((part, i) => {
+                    if (part.startsWith('{{') && part.endsWith('}}')) {
+                        return <span key={i} className="bg-cyan-100 text-cyan-800 px-1 rounded font-semibold">{part.replace(/[{}]/g, '')}</span>;
+                    }
+                    return <span key={i}>{part}</span>;
+                })}
+            </span>
+        );
+    };
+
     const AirPostApp = () => {
         // --- GLOBAL STATE ---
         const [step, setStep] = useState(1);
@@ -88,14 +126,9 @@
         const [globalData, setGlobalData] = useState({ userEmail: '', totalSent: 0 });
         const [toasts, setToasts] = useState([]);
         
-        const WORKFLOW_STEPS = [
-        { id: 'setup', label: 'Campaign Setup' },
-        { id: 'audience', label: 'Audience' },
-        { id: 'preview', label: 'Preview & Send' }
-        
-        ];
-        // Get logo from window
+        // Get logo from window — converted to data URL to avoid inline SVG execution surface
         const logoSvg = window.LOGO_SVG || '';
+        const logoDataUrl = logoSvg ? `data:image/svg+xml,${encodeURIComponent(logoSvg)}` : '';
 
         // Form State
         const [aliases, setAliases] = useState([]);
@@ -103,6 +136,7 @@
         const [selectedAlias, setSelectedAlias] = useState('');
         const [selectedTemplate, setSelectedTemplate] = useState('');
         const [showFolderSettings, setShowFolderSettings] = useState(false);
+        const [isUpdatingFolder, setIsUpdatingFolder] = useState(false);
         const [folderName, setFolderName] = useState('');
         const [currentFolderId, setCurrentFolderId] = useState('');
         const [folderIdInput, setFolderIdInput] = useState('');
@@ -124,24 +158,12 @@
         const [isSending, setIsSending] = useState(false);
         const [sendResults, setSendResults] = useState(null);
 
-        // --- UI COMPONENT: Live Subject Highlighter ---
-        const HighlightedSubject = ({ text }) => {
-            if (!text) return <span className="text-slate-400 italic">(Enter subject above)</span>;
-            
-            // Split by {{Variable}} preserving the match
-            const parts = text.split(/({{.*?}})/g);
-            return (
-                <span>
-                    {parts.map((part, i) => {
-                        if (part.startsWith('{{') && part.endsWith('}}')) {
-                            // Render variables with a cyan pill highlight
-                            return <span key={i} className="bg-cyan-100 text-cyan-800 px-1 rounded font-semibold">{part.replace(/[{}]/g, '')}</span>;
-                        }
-                        return <span key={i}>{part}</span>; // Render normal text
-                    })}
-                </span>
-            );
-        };
+        // Modal State
+        const [modal, setModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null, isDanger: false });
+        const openModal = ({ title, message, onConfirm, isDanger = false }) =>
+            setModal({ isOpen: true, title, message, onConfirm, isDanger });
+        const closeModal = () => setModal(prev => ({ ...prev, isOpen: false }));
+        const handleModalConfirm = () => { modal.onConfirm?.(); closeModal(); };
 
         // --- STEPPER NAVIGATION ---
         const handleStepperClick = (targetStep) => {
@@ -210,17 +232,18 @@
             // If the user pasted a full URL, extract the ID. Otherwise, assume they pasted the raw ID.
             const idMatch = folderIdInput.match(/[-\w]{25,}/);
             const finalFolderId = idMatch ? idMatch[0] : folderIdInput.trim();
+            setIsUpdatingFolder(true);
             try {
                 await runGas('setTemplateFolderId', finalFolderId);
                 addToast('Source folder updated!', 'success');
-                
+
                 // --- RE-FETCH DATA UPON SUCCESSFUL FOLDER CHANGE ---
                 const [newTemplates, newFName, newFId] = await Promise.all([
                     runGas('getTemplates'),
                     runGas('getTemplateFolderName'),
                     runGas('getTemplateFolderId')
                 ]);
-                
+
                 setTemplates(newTemplates || []);
                 setFolderName(newFName || 'Unknown Folder');
                 setCurrentFolderId(newFId || finalFolderId);
@@ -228,6 +251,8 @@
                 setShowFolderSettings(false);
             } catch (err) {
                 addToast(err.message, 'error');
+            } finally {
+                setIsUpdatingFolder(false);
             }
         };
 
@@ -240,8 +265,13 @@
         };
 
         // --- STEP 2 LOGIC ---
-        const handleExtractTabs = async () => {
+        const handleExtractTabs = useCallback(async () => {
             if (!sheetUrl) return;
+            // Invalidate downstream state now that a real fetch is beginning
+            setValidationState({ status: 'idle', details: null });
+            setPreviewData(null);
+            setPreviewIndex(0);
+            setSendResults(null);
             const sheetIdMatch = sheetUrl.match(/[-\w]{25,}/);
             if (!sheetIdMatch) {
                 addToast('Invalid Google Sheet URL', 'error');
@@ -261,7 +291,7 @@
             } finally {
                 setIsFetchingTabs(false); // --- END LOADING ---
             }
-        };
+        }, [sheetUrl]);
 
         // --- HANDLE SHEET GENERATION ---
         const handleGenerateSheet = async () => {
@@ -293,20 +323,45 @@
         }, [sheetUrl]);
 
         // 2. CORNER CASE FIX: Centralized State Invalidator
-        // If the Template, Sheet URL, or Tab changes, we MUST wipe all downstream progress.
+        // If the Template or Tab changes, wipe all downstream progress.
+        // sheetUrl changes are handled inside handleExtractTabs after debounce resolves.
         useEffect(() => {
             setValidationState({ status: 'idle', details: null });
             setPreviewData(null);
             setPreviewIndex(0);
             setSendResults(null);
-        }, [sheetUrl, selectedTemplate, selectedTab]);
+        }, [selectedTemplate, selectedTab]);
+
+        // 3. Keyboard navigation for preview pane (← →) — scoped away from text inputs
+        useEffect(() => {
+            if (step !== 3 || !previewData || isFetchingPreview) return;
+            const onKey = (e) => {
+                const tag = document.activeElement?.tagName;
+                if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+                if (e.key === 'ArrowLeft' && previewIndex > 0)
+                    fetchPreview(previewIndex - 1);
+                if (e.key === 'ArrowRight' && previewIndex < previewData.totalRows - 1)
+                    fetchPreview(previewIndex + 1);
+            };
+            document.addEventListener('keydown', onKey);
+            return () => document.removeEventListener('keydown', onKey);
+        }, [step, previewData, previewIndex, isFetchingPreview]);
+
+        // 4. Auto-generate preview on step 3 entry if subject is ready and no preview loaded
+        useEffect(() => {
+            if (step === 3 && subjectLine.trim() && !previewData) {
+                fetchPreview(0);
+            }
+        }, [step]);
 
         const handleValidateSheet = async () => {
             if (!sheetUrl || !selectedTab) return addToast('URL and Tab required.', 'error');
             
+            const sheetIdMatch = sheetUrl.match(/[-\w]{25,}/);
+            if (!sheetIdMatch) return addToast('Invalid sheet URL.', 'error');
             setIsValidating(true);
             try {
-                const sheetId = sheetUrl.match(/[-\w]{25,}/)[0];
+                const sheetId = sheetIdMatch[0];
                 const result = await runGas('validateSheetColumns', sheetId, selectedTemplate, selectedTab);
                 
                 setValidationState({ 
@@ -325,9 +380,11 @@
 
         // --- STEP 3 LOGIC ---
         const fetchPreview = async (index) => {
+            const sheetIdMatch = sheetUrl.match(/[-\w]{25,}/);
+            if (!sheetIdMatch) return addToast('Invalid sheet URL.', 'error');
             setIsFetchingPreview(true);
             try {
-                const sheetId = sheetUrl.match(/[-\w]{25,}/)[0];
+                const sheetId = sheetIdMatch[0];
                 const res = await runGas('generateEmailPreview', sheetId, selectedTemplate, selectedTab, index);
                 setPreviewData(res);
                 setPreviewIndex(index);
@@ -347,16 +404,13 @@
             fetchPreview(0); 
         };
 
-        const handleSendEmails = async () => {
-            // CORNER CASE FIX: Prevent whitespace-only subjects
-            if (!subjectLine.trim()) return addToast('Subject is required.', 'error');
-            
-            if (!confirm("Are you sure you want to send emails? This cannot be undone.")) return;
-
+        const executeSend = async () => {
+            const sheetIdMatch = sheetUrl.match(/[-\w]{25,}/);
+            if (!sheetIdMatch) return addToast('Invalid sheet URL.', 'error');
             setIsSending(true);
             setSendResults(null);
             try {
-                const sheetId = sheetUrl.match(/[-\w]{25,}/)[0];
+                const sheetId = sheetIdMatch[0];
                 const selectedAliasObj = aliases.find(a => a.email === selectedAlias);
                 
                 const res = await runGas('sendEmailsWithSheet', sheetId, selectedTemplate, subjectLine, selectedTab, selectedAlias, selectedAliasObj.displayName);
@@ -386,10 +440,19 @@
             }
         };
 
+        const handleSendEmails = () => {
+            // CORNER CASE FIX: Prevent whitespace-only subjects
+            if (!subjectLine.trim()) return addToast('Subject is required.', 'error');
+            openModal({
+                title: 'Dispatch Emails',
+                message: 'Are you sure you want to send emails? This cannot be undone.',
+                onConfirm: executeSend,
+                isDanger: true,
+            });
+        };
+
         // --- RESET LOGIC ---
-        const handleStartOver = () => {
-            if (!confirm("Are you sure you want to start over? All current progress will be lost.")) return;
-            
+        const executeStartOver = () => {
             // Reset to step 1
             setStep(1);
             
@@ -416,10 +479,26 @@
             addToast('Campaign reset successfully.', 'success');
         };
 
+        const handleStartOver = () => {
+            openModal({
+                title: 'Start Over',
+                message: 'Are you sure you want to start over? All current progress will be lost.',
+                onConfirm: executeStartOver,
+            });
+        };
+
         const getTemplateName = () => templates.find(t => t.id === selectedTemplate)?.name || 'Pending...';
 
         return (
             <div className="flex flex-col h-screen">
+                <ConfirmModal
+                    isOpen={modal.isOpen}
+                    title={modal.title}
+                    message={modal.message}
+                    onConfirm={handleModalConfirm}
+                    onClose={closeModal}
+                    isDanger={modal.isDanger}
+                />
                 {/* HEADER */}
                 <header className="border-b border-[var(--border-moderate)] py-3 px-6 mb-4 flex justify-between items-center bg-[var(--surface-primary)]/40 backdrop-blur-md sticky top-0 z-50 shrink-0">
                     <div className="flex flex-col">
@@ -451,11 +530,11 @@
                         
                         {/* --- LOGO --- */}
                         <div className="header-logo-group">
-                            <div style={{textAlign:'right', lineHeight: 1.2}}>
-                                <div style={{fontSize:'0.75rem', color:'var(--text-disabled)', textTransform:'uppercase', letterSpacing:'0.05em'}}>Powered by</div>
-                                <div style={{fontSize:'0.9rem', fontWeight:600, color:'var(--brand-primary)'}}>Red Panda Projects</div>
+                            <div className="header-powered-by-text">
+                                <div className="header-powered-by-label">Powered by</div>
+                                <div className="header-powered-by-brand">Red Panda Projects</div>
                             </div>
-                            <div dangerouslySetInnerHTML={{ __html: logoSvg }} className="header-logo" style={{width:'36px', height:'36px', filter: 'drop-shadow(0 0 8px rgba(0, 136, 161, 0.4))'}} />
+                            {logoDataUrl && <img src={logoDataUrl} className="header-logo" alt="AirPost logo" />}
                         </div>
                     </div>
                 </header>
@@ -547,7 +626,9 @@
                                                     <div className="flex gap-2">
                                                         {/* UPDATED PLACEHOLDER TO REFLECT NEW CAPABILITY */}
                                                         <input type="text" placeholder="Paste Folder URL or ID here" className="form-input !py-2 text-sm flex-1 font-mono" value={folderIdInput} onChange={e => setFolderIdInput(e.target.value)} />
-                                                        <button onClick={handleUpdateFolder} className="btn btn-secondary !py-2">Update</button>
+                                                        <button onClick={handleUpdateFolder} disabled={isUpdatingFolder} className="btn btn-secondary !py-2">
+                                                            {isUpdatingFolder ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Updating...</> : 'Update'}
+                                                        </button>
                                                     </div>
                                                 </div>
                                             )}
@@ -665,7 +746,12 @@
                                     </div>
                                     <div className="mt-6 pt-4 border-t border-[var(--border-moderate)] flex justify-between items-center shrink-0">
                                         <button onClick={() => setStep(1)} className="btn btn-secondary border-transparent"><i className="fa-solid fa-arrow-left"></i> Back</button>
-                                        <button onClick={() => setStep(3)} disabled={validationState.status !== 'success'} className="btn btn-primary">Next: Preview <i className="fa-solid fa-arrow-right"></i></button>
+                                        <div className="flex flex-col items-end gap-1">
+                                            <button onClick={() => setStep(3)} disabled={validationState.status !== 'success'} className="btn btn-primary">Next: Preview <i className="fa-solid fa-arrow-right"></i></button>
+                                            {validationState.status !== 'success' && (
+                                                <span className="text-xs text-[var(--text-disabled)]">Validation required to continue</span>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             )}
@@ -685,7 +771,7 @@
 
                                     <div className="flex-grow flex flex-col min-h-0">
                                         <div className="mb-4 flex gap-2">
-                                            <input type="text" placeholder="Email Subject Line (e.g. Hi {{Name}}!)" className="form-input flex-grow" value={subjectLine} onChange={e => setSubjectLine(e.target.value)} />
+                                            <input type="text" placeholder="Email Subject Line (e.g. Hi {{Name}}!)" className="form-input flex-grow" value={subjectLine} onChange={e => setSubjectLine(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleGeneratePreview(); }} />
                                             <button onClick={handleGeneratePreview} className="btn btn-secondary whitespace-nowrap"><i className="fa-solid fa-eye"></i> Gen Preview</button>
                                         </div>
 
@@ -721,43 +807,43 @@
                                             </div>
                                         )}
 
-                                        <div className="flex-grow flex flex-col bg-white rounded-lg overflow-hidden border border-[var(--border-moderate)] text-slate-800 min-h-0">
-                                            <div className="bg-slate-100 border-b border-slate-200 p-2 px-4 flex justify-between items-center text-xs text-slate-500 shrink-0">
+                                        <div className="preview-pane">
+                                            <div className="preview-pane-toolbar">
                                                 <span><i className="fa-solid fa-eye"></i> Recipient Preview</span>
-                                                
+
                                                 {/* Pagination Controls */}
                                                 {previewData && (
-                                                    <div className="flex items-center gap-2 bg-white rounded shadow-sm border border-slate-200">
-                                                        <button 
-                                                            onClick={() => fetchPreview(previewIndex - 1)} 
-                                                            disabled={previewIndex === 0 || isFetchingPreview} 
-                                                            className="px-2 py-1 hover:bg-slate-50 border-r border-slate-200 disabled:opacity-50">
+                                                    <div className="preview-pane-pagination">
+                                                        <button
+                                                            onClick={() => fetchPreview(previewIndex - 1)}
+                                                            disabled={previewIndex === 0 || isFetchingPreview}
+                                                            className="preview-pane-page-btn preview-pane-page-btn--left">
                                                             <i className="fa-solid fa-chevron-left"></i>
                                                         </button>
                                                         <span className="font-semibold px-2 w-28 text-center">Row {previewData.currentRow} of {previewData.totalRows}</span>
-                                                        <button 
-                                                            onClick={() => fetchPreview(previewIndex + 1)} 
-                                                            disabled={previewIndex >= previewData.totalRows - 1 || isFetchingPreview} 
-                                                            className="px-2 py-1 hover:bg-slate-50 border-l border-slate-200 disabled:opacity-50">
+                                                        <button
+                                                            onClick={() => fetchPreview(previewIndex + 1)}
+                                                            disabled={previewIndex >= previewData.totalRows - 1 || isFetchingPreview}
+                                                            className="preview-pane-page-btn preview-pane-page-btn--right">
                                                             <i className="fa-solid fa-chevron-right"></i>
                                                         </button>
                                                     </div>
                                                 )}
                                             </div>
-                                            <div className="bg-slate-50 border-b border-slate-200 p-4 text-sm shrink-0">
-                                                <div className="flex mb-1"><span className="w-16 text-slate-500">From:</span> <span className="font-semibold">{selectedAlias}</span></div>
-                                                <div className="flex mb-1"><span className="w-16 text-slate-500">To:</span> <span className="font-semibold">{previewData ? previewData.toEmail : <span className="italic text-slate-400">Loading...</span>}</span></div>
-                                                <div className="flex"><span className="w-16 text-slate-500">Subject:</span> <HighlightedSubject text={subjectLine} /></div>
+                                            <div className="preview-pane-meta">
+                                                <div className="flex mb-1"><span className="preview-pane-meta-label">From:</span> <span className="font-semibold">{selectedAlias}</span></div>
+                                                <div className="flex mb-1"><span className="preview-pane-meta-label">To:</span> <span className="font-semibold">{previewData ? previewData.toEmail : <span className="subject-placeholder">Loading...</span>}</span></div>
+                                                <div className="flex"><span className="preview-pane-meta-label">Subject:</span> <HighlightedSubject text={subjectLine} /></div>
                                             </div>
-                                            
+
                                             {/* HTML Body Render */}
                                             {isFetchingPreview ? (
-                                                <div className="flex items-center justify-center flex-grow p-8 bg-white"><i className="fa-solid fa-circle-notch fa-spin text-3xl text-slate-300"></i></div>
+                                                <div className="preview-pane-loading"><i className="fa-solid fa-circle-notch fa-spin text-3xl"></i></div>
                                             ) : (
                                                 <iframe
                                                     srcDoc={previewData?.html || '<p style="color:#94a3b8;text-align:center;margin-top:2.5rem;font-style:italic">Click "Gen Preview" to render template.</p>'}
                                                     sandbox="allow-same-origin"
-                                                    style={{ width: '100%', height: '100%', border: 'none', display: 'block', flexGrow: 1, padding: '1rem' }}
+                                                    className="preview-pane-iframe"
                                                     title="Email Preview"
                                                 />
                                             )}
@@ -772,7 +858,7 @@
                                         
                                         <button 
                                             onClick={handleSendEmails} 
-                                            disabled={isSending || !subjectLine} 
+                                            disabled={isSending || !subjectLine.trim()}
                                             className="btn btn-primary !py-3 !px-6 !text-sm shadow-[0_0_15px_rgba(34,211,238,0.3)]"
                                         >
                                             {isSending ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Sending...</> : <><i className="fa-solid fa-paper-plane"></i> Dispatch Emails</>}
@@ -813,6 +899,10 @@
                                 <div className="summary-item">
                                     <span className="summary-label">Audience Data</span>
                                     {validationState.status === 'success' ? <div className="summary-value"><i className="fa-solid fa-table text-[var(--status-success)]"></i> <span className="text-[var(--status-success)]">Sheet Validated</span></div> : <div className="summary-value pending">Pending...</div>}
+                                </div>
+                                <div className="summary-item">
+                                    <span className="summary-label">Sheet Tab</span>
+                                    {selectedTab ? <div className="summary-value"><i className="fa-solid fa-table-columns text-[var(--brand-primary)]"></i> <span className="truncate">{selectedTab}</span></div> : <div className="summary-value pending">Pending...</div>}
                                 </div>
                                 <div className="summary-item">
                                     <span className="summary-label">Subject Line</span>
