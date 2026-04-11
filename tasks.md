@@ -118,3 +118,11 @@ Wrapped the "Next: Preview" button in a flex column. Added a `"Validation requir
 
 ### ✅ #9 — Sidebar missing Sheet Tab row (`script.html`)
 Added a "Sheet Tab" summary item between "Audience Data" and "Subject Line" showing the selected tab name or "Pending..." if not yet set.
+
+---
+
+## valecantu04/fix-email
+
+### ✅ #1 — Document Tabs headings appear in email body (`Code.js`)
+When a Google Doc template uses the Document Tabs feature, the HTML export API inserts each tab's title as a heading element (e.g. `<h1>Tab 1</h1>`) before the actual content. This artifact appeared verbatim in both the preview and the sent email.
+**Fix:** In `getTemplateContent`, after body HTML extraction, call `Docs.Documents.get(templateId)` to retrieve tab titles and strip any heading element whose full text content exactly matches a tab title. Wrapped in `try/catch` to fail-open if the Docs API is temporarily unavailable. No manifest change needed — Docs v1 was already an enabled advanced service.

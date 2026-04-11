@@ -499,6 +499,45 @@ function getTemplateContent(templateId) {
     // This perfectly preserves the user's intended visual break without compounding the 12pt paragraph margins.
     bodyHtml = bodyHtml.replace(/<p[^>]*>(?:\s|&nbsp;|<br\s*\/?>|<\/?span[^>]*>)*<\/p>/gi, '');
 
+    // --- DOCUMENT TABS ARTIFACT REMOVAL ---
+    // When a Google Doc uses the Document Tabs feature, the export API inserts
+    // each tab's title as a heading element in the HTML. These are structural
+    // artifacts, not template content — strip the first element (heading or
+    // paragraph) whose full text matches a tab title.
+    //
+    // Note: Docs.Documents.get() does not populate doc.tabs unless
+    // includeTabsContent=true is passed. We call the REST API directly with a
+    // field mask so we get only tab titles without fetching full body content.
+    try {
+      const docsApiUrl = `https://docs.googleapis.com/v1/documents/${templateId}?fields=tabs(tabProperties%2Ftitle)&includeTabsContent=true`;
+      const docsApiResponse = UrlFetchApp.fetch(docsApiUrl, {
+        headers: { Authorization: `Bearer ${ScriptApp.getOAuthToken()}` },
+        muteHttpExceptions: true,
+      });
+      if (docsApiResponse.getResponseCode() === 200) {
+        const doc = JSON.parse(docsApiResponse.getContentText());
+        if (doc.tabs && doc.tabs.length > 0) {
+          const tabTitles = doc.tabs
+            .map(t => t.tabProperties && t.tabProperties.title)
+            .filter(Boolean);
+          // Strip the first occurrence of any block element (h1-h6 or p) whose
+          // full text content exactly equals a tab title. Using "first only" to
+          // avoid accidentally removing legitimate content elsewhere in the template.
+          tabTitles.forEach(title => {
+            let found = false;
+            bodyHtml = bodyHtml.replace(/<(h[1-6]|p)[^>]*>[\s\S]*?<\/(h[1-6]|p)>/gi, fullMatch => {
+              if (found) return fullMatch;
+              const text = fullMatch.replace(/<[^>]*>/g, '').trim();
+              if (text === title) { found = true; return ''; }
+              return fullMatch;
+            });
+          });
+        }
+      }
+    } catch (e) {
+      // Fail-open: if the Docs API call fails, proceed with unmodified HTML.
+    }
+
     // 5. Process EVERY tag to handle classes AND restore native email formatting
     let inlinedHtml = bodyHtml.replace(/<([a-zA-Z0-9]+)([^>]*)>/gi, function(fullMatch, tag, attributes) { 
       const lowerTag = tag.toLowerCase();
