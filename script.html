@@ -166,6 +166,22 @@
         const closeModal = () => setModal(prev => ({ ...prev, isOpen: false }));
         const handleModalConfirm = () => { modal.onConfirm?.(); closeModal(); };
 
+        // Draft State
+        const [draftStartDate, setDraftStartDate] = useState(() => {
+            const d = new Date();
+            d.setDate(d.getDate() - 7);
+            return d.toISOString().slice(0, 10);
+        });
+        const [draftEndDate, setDraftEndDate] = useState(() => new Date().toISOString().slice(0, 10));
+        const [drafts, setDrafts] = useState([]);
+        const [isFetchingDrafts, setIsFetchingDrafts] = useState(false);
+        const [expandedDraftId, setExpandedDraftId] = useState(null);
+        const [draftContentCache, setDraftContentCache] = useState({});
+        const [isFetchingDraftContent, setIsFetchingDraftContent] = useState(false);
+        const [selectedDraftIds, setSelectedDraftIds] = useState(() => new Set());
+        const [isSendingDrafts, setIsSendingDrafts] = useState(false);
+        const [draftSendResults, setDraftSendResults] = useState(null);
+
         // --- STEPPER NAVIGATION ---
         const handleStepperClick = (targetStep) => {
             // Users can only click backward to completed steps, preventing them from skipping validation
@@ -486,6 +502,104 @@
                 message: 'Are you sure you want to start over? All current progress will be lost.',
                 onConfirm: executeStartOver,
             });
+        };
+
+        // --- DRAFTS LOGIC ---
+        const fetchDrafts = async () => {
+            setIsFetchingDrafts(true);
+            setDraftSendResults(null);
+            setExpandedDraftId(null);
+            try {
+                const results = await runGas('getDrafts', draftStartDate, draftEndDate);
+                setDrafts(results);
+                setSelectedDraftIds(new Set(results.map(d => d.id)));
+            } catch (err) {
+                addToast('Failed to load drafts. Please try again.', 'error');
+                setDrafts([]);
+            } finally {
+                setIsFetchingDrafts(false);
+            }
+        };
+
+        const toggleDraftSelection = (id) => {
+            setSelectedDraftIds(prev => {
+                const next = new Set(prev);
+                next.has(id) ? next.delete(id) : next.add(id);
+                return next;
+            });
+        };
+
+        const toggleAllDrafts = () => {
+            if (selectedDraftIds.size === drafts.length && drafts.length > 0) {
+                setSelectedDraftIds(new Set());
+            } else {
+                setSelectedDraftIds(new Set(drafts.map(d => d.id)));
+            }
+        };
+
+        const handleExpandDraft = async (draftId) => {
+            if (expandedDraftId === draftId) {
+                setExpandedDraftId(null);
+                return;
+            }
+            setExpandedDraftId(draftId);
+            if (draftContentCache[draftId]) return;
+            setIsFetchingDraftContent(true);
+            try {
+                const html = await runGas('getDraftContent', draftId);
+                setDraftContentCache(prev => ({ ...prev, [draftId]: html }));
+            } catch (err) {
+                setDraftContentCache(prev => ({
+                    ...prev,
+                    [draftId]: '<p style="color:#ff5664;font-style:italic;padding:12px">Could not load preview.</p>'
+                }));
+            } finally {
+                setIsFetchingDraftContent(false);
+            }
+        };
+
+        const handleSendDrafts = () => {
+            const count = selectedDraftIds.size;
+            if (count === 0) return;
+            openModal({
+                title: 'Send Drafts',
+                message: `Send ${count} draft${count === 1 ? '' : 's'}? They will be permanently deleted from your Gmail Drafts folder.`,
+                isDanger: true,
+                onConfirm: executeSendDrafts,
+            });
+        };
+
+        const executeSendDrafts = async () => {
+            setIsSendingDrafts(true);
+            try {
+                const ids = Array.from(selectedDraftIds);
+                const results = await runGas('sendDrafts', ids);
+                setDraftSendResults(results);
+
+                const sentIds = new Set(results.filter(r => r.success).map(r => r.draftId));
+                setDrafts(prev => prev.filter(d => !sentIds.has(d.id)));
+                setSelectedDraftIds(prev => {
+                    const next = new Set(prev);
+                    sentIds.forEach(id => next.delete(id));
+                    return next;
+                });
+                setExpandedDraftId(null);
+
+                const sentCount = results.filter(r => r.success).length;
+                const failedCount = results.filter(r => !r.success).length;
+
+                if (failedCount === 0) {
+                    addToast(`${sentCount} draft${sentCount === 1 ? '' : 's'} sent successfully.`, 'success');
+                } else if (sentCount === 0) {
+                    addToast('Send failed. Your drafts were not deleted.', 'error');
+                } else {
+                    addToast(`${sentCount} sent, ${failedCount} failed.`, 'error');
+                }
+            } catch (err) {
+                addToast('Send failed. Please try again.', 'error');
+            } finally {
+                setIsSendingDrafts(false);
+            }
         };
 
         const getTemplateName = () => templates.find(t => t.id === selectedTemplate)?.name || 'Pending...';
@@ -943,8 +1057,63 @@
                     </div>
                     </>}
                     {activeTab === 'drafts' && (
-                        <div className="w-full max-w-6xl flex flex-col flex-grow items-center justify-center">
-                            <p className="text-[var(--text-secondary)]">Drafts view loading...</p>
+                        <div className="w-full max-w-6xl wizard-layout flex flex-col md:flex-row overflow-hidden flex-grow">
+                            {/* DRAFTS LEFT COLUMN */}
+                            <div className="flex-grow flex flex-col relative overflow-hidden">
+                                {/* Toasts */}
+                                <div className="absolute top-8 right-8 z-[100] flex flex-col gap-3 pointer-events-none">
+                                    {toasts.map(toast => (
+                                        <div key={toast.id} className={`${toast.isExiting ? 'toast-exit' : 'toast-enter'} pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-lg shadow-2xl border-l-4 ${toast.type === 'success' ? 'border-[var(--status-success)]' : 'border-[var(--status-critical)]'} bg-[var(--surface-primary)] text-white min-w-[280px] max-w-[350px] border border-[var(--border-moderate)]`}>
+                                            <i className={`fa-solid ${toast.type === 'success' ? 'fa-circle-check text-[var(--status-success)]' : 'fa-triangle-exclamation text-[var(--status-critical)]'} text-xl`}></i>
+                                            <div className="flex flex-col">
+                                                <span className="font-bold text-sm tracking-wide uppercase">{toast.type === 'success' ? 'Success' : 'Notice'}</span>
+                                                <span className="text-xs text-[var(--text-secondary)] mt-0.5">{toast.message}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <div className="flex-grow p-8 flex flex-col overflow-y-auto custom-scrollbar relative">
+                                    <div className="mb-6 border-b border-[var(--border-moderate)] pb-4 shrink-0">
+                                        <h2 className="text-2xl font-bold flex items-center gap-2">
+                                            <i className="fa-solid fa-file-lines text-[var(--brand-primary)]"></i> Drafts
+                                        </h2>
+                                        <p className="text-[var(--text-secondary)] mt-1 text-sm">Filter, preview, and send emails from your Gmail Drafts.</p>
+                                    </div>
+
+                                    {/* DATE FILTER BAR */}
+                                    <div className="app-card flex flex-wrap items-center gap-3 mb-6 shrink-0">
+                                        <span className="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Created</span>
+                                        <input
+                                            type="date"
+                                            className="form-input"
+                                            value={draftStartDate}
+                                            onChange={e => setDraftStartDate(e.target.value)}
+                                        />
+                                        <span className="text-[var(--text-disabled)]">→</span>
+                                        <input
+                                            type="date"
+                                            className="form-input"
+                                            value={draftEndDate}
+                                            onChange={e => setDraftEndDate(e.target.value)}
+                                        />
+                                        <button
+                                            onClick={fetchDrafts}
+                                            disabled={isFetchingDrafts}
+                                            className="btn btn-primary"
+                                        >
+                                            {isFetchingDrafts
+                                                ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Loading...</>
+                                                : <><i className="fa-solid fa-filter"></i> Filter</>}
+                                        </button>
+                                    </div>
+
+                                    {/* DRAFT LIST PLACEHOLDER — replaced in Task 4 */}
+                                    <div className="text-[var(--text-secondary)] text-sm italic">
+                                        {isFetchingDrafts ? 'Loading drafts...' : 'Click Filter to load drafts.'}
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     )}
                 </main>
