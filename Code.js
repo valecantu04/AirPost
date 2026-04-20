@@ -784,3 +784,39 @@ function getTotalSentEmailCount() {
     return 0; // Return 0 on error
   }
 }
+
+function getDrafts(afterDate, beforeDate) {
+  try {
+    // Gmail search query uses YYYY/MM/DD format
+    const afterQuery = afterDate.replace(/-/g, '/');
+    const beforeQuery = beforeDate.replace(/-/g, '/');
+    const query = `after:${afterQuery} before:${beforeQuery}`;
+
+    const listResult = Gmail.Users.Drafts.list('me', { q: query, maxResults: 50 });
+    const draftItems = listResult.drafts || [];
+
+    return draftItems.map(item => {
+      try {
+        const draft = Gmail.Users.Drafts.get('me', item.id, { format: 'metadata' });
+        const headers = draft.message.payload.headers;
+        const getHeader = (name) =>
+          (headers.find(h => h.name.toLowerCase() === name.toLowerCase()) || {}).value || '';
+
+        return {
+          id: item.id,
+          subject: getHeader('Subject') || '(no subject)',
+          to: getHeader('To'),
+          cc: getHeader('Cc'),
+          from: getHeader('From'),
+          createdAt: new Date(parseInt(draft.message.internalDate)).toISOString()
+        };
+      } catch (e) {
+        Logger.log(`Could not fetch draft metadata for ${item.id}: ${e.message}`);
+        return null;
+      }
+    }).filter(Boolean);
+  } catch (error) {
+    Logger.log(`Error fetching drafts: ${error.message}\nStack: ${error.stack}`);
+    throw new Error('Failed to load drafts. Please try again.');
+  }
+}
