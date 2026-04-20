@@ -1113,10 +1113,103 @@
                                         </button>
                                     </div>
 
-                                    {/* DRAFT LIST PLACEHOLDER — replaced in Task 4 */}
-                                    <div className="text-[var(--text-secondary)] text-sm italic">
-                                        {isFetchingDrafts ? 'Loading drafts...' : 'Click Filter to load drafts.'}
-                                    </div>
+                                    {/* DRAFT LIST */}
+                                    {drafts.length === 0 && !isFetchingDrafts && (
+                                        <div className="app-card text-center text-[var(--text-secondary)] text-sm py-8">
+                                            <i className="fa-solid fa-inbox text-2xl mb-3 block text-[var(--text-disabled)]"></i>
+                                            No drafts found in this date range. Try widening the filter.
+                                        </div>
+                                    )}
+
+                                    {drafts.length > 0 && (
+                                        <div className="flex flex-col gap-2 shrink-0">
+                                            {/* SELECT-ALL ROW */}
+                                            <div className="flex items-center gap-3 px-1 mb-2">
+                                                <input
+                                                    type="checkbox"
+                                                    className="accent-[var(--brand-primary)] w-4 h-4 cursor-pointer"
+                                                    checked={selectedDraftIds.size === drafts.length && drafts.length > 0}
+                                                    onChange={toggleAllDrafts}
+                                                />
+                                                <span className="text-sm text-[var(--text-secondary)]">
+                                                    {selectedDraftIds.size} of {drafts.length} draft{drafts.length === 1 ? '' : 's'} selected
+                                                </span>
+                                                <button
+                                                    onClick={handleSendDrafts}
+                                                    disabled={selectedDraftIds.size === 0 || isSendingDrafts}
+                                                    className="btn btn-primary ml-auto"
+                                                >
+                                                    {isSendingDrafts
+                                                        ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Sending...</>
+                                                        : <><i className="fa-solid fa-paper-plane"></i> Send {selectedDraftIds.size} Draft{selectedDraftIds.size === 1 ? '' : 's'}</>}
+                                                </button>
+                                            </div>
+
+                                            {/* DRAFT ROWS */}
+                                            {drafts.map(draft => {
+                                                const isExpanded = expandedDraftId === draft.id;
+                                                const isSelected = selectedDraftIds.has(draft.id);
+                                                return (
+                                                    <div
+                                                        key={draft.id}
+                                                        className={`app-card p-0 overflow-hidden transition-all ${isSelected ? 'border-[var(--brand-primary)]/30' : 'opacity-60'}`}
+                                                    >
+                                                        {/* ROW HEADER */}
+                                                        <div className="flex items-center gap-3 p-4">
+                                                            <input
+                                                                type="checkbox"
+                                                                className="accent-[var(--brand-primary)] w-4 h-4 cursor-pointer shrink-0"
+                                                                checked={isSelected}
+                                                                onChange={() => toggleDraftSelection(draft.id)}
+                                                                onClick={e => e.stopPropagation()}
+                                                            />
+                                                            <div
+                                                                className="flex-grow min-w-0 cursor-pointer"
+                                                                onClick={() => handleExpandDraft(draft.id)}
+                                                            >
+                                                                <div className="text-sm font-semibold text-white truncate">{draft.subject}</div>
+                                                                <div className="text-xs text-[var(--text-secondary)] mt-0.5 truncate">
+                                                                    To: {draft.to}
+                                                                    {draft.cc ? ` · CC: ${draft.cc}` : ''}
+                                                                    {' · '}From: {draft.from}
+                                                                    {' · '}{new Date(draft.createdAt).toLocaleDateString()}
+                                                                </div>
+                                                            </div>
+                                                            <button
+                                                                onClick={() => handleExpandDraft(draft.id)}
+                                                                className="text-[var(--text-disabled)] hover:text-white transition-colors shrink-0 px-1"
+                                                                aria-label={isExpanded ? 'Collapse' : 'Expand'}
+                                                            >
+                                                                <i className={`fa-solid fa-chevron-${isExpanded ? 'up' : 'down'} text-sm`}></i>
+                                                            </button>
+                                                        </div>
+
+                                                        {/* INLINE PREVIEW — content loaded lazily in Task 6 */}
+                                                        {isExpanded && (
+                                                            <div className="mx-4 mb-4 rounded overflow-hidden border border-[var(--border-moderate)]">
+                                                                <div className="bg-[var(--surface-primary)] px-3 py-1.5 text-xs text-[var(--text-secondary)] flex items-center gap-2">
+                                                                    <i className="fa-solid fa-envelope text-[var(--brand-primary)]"></i> Email Preview
+                                                                </div>
+                                                                {draftContentCache[draft.id] ? (
+                                                                    <iframe
+                                                                        srcDoc={draftContentCache[draft.id]}
+                                                                        sandbox="allow-same-origin"
+                                                                        className="preview-pane-iframe"
+                                                                        style={{ height: '300px', width: '100%', border: 'none', background: '#fff' }}
+                                                                        title={`Preview: ${draft.subject}`}
+                                                                    />
+                                                                ) : (
+                                                                    <div className="bg-white h-32 flex items-center justify-center text-gray-400">
+                                                                        <i className="fa-solid fa-circle-notch fa-spin text-[var(--brand-primary)] text-xl"></i>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
