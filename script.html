@@ -584,6 +584,11 @@
                     return next;
                 });
                 setExpandedDraftId(null);
+                setDraftContentCache(prev => {
+                    const next = { ...prev };
+                    sentIds.forEach(id => delete next[id]);
+                    return next;
+                });
 
                 const sentCount = results.filter(r => r.success).length;
                 const failedCount = results.filter(r => !r.success).length;
@@ -1099,7 +1104,7 @@
                                         />
                                         <button
                                             onClick={fetchDrafts}
-                                            disabled={isFetchingDrafts}
+                                            disabled={isFetchingDrafts || isSendingDrafts}
                                             className="btn btn-primary"
                                         >
                                             {isFetchingDrafts
