@@ -820,3 +820,40 @@ function getDrafts(afterDate, beforeDate) {
     throw new Error('Failed to load drafts. Please try again.');
   }
 }
+
+function getDraftContent(draftId) {
+  try {
+    const draft = Gmail.Users.Drafts.get('me', draftId, { format: 'full' });
+    const payload = draft.message.payload;
+
+    function findPart(part, mimeType) {
+      if (!part) return null;
+      if (part.mimeType === mimeType && part.body && part.body.data) {
+        return part.body.data;
+      }
+      if (part.parts) {
+        for (const subPart of part.parts) {
+          const found = findPart(subPart, mimeType);
+          if (found) return found;
+        }
+      }
+      return null;
+    }
+
+    const htmlData = findPart(payload, 'text/html');
+    if (htmlData) {
+      return Utilities.newBlob(Utilities.base64DecodeWebSafe(htmlData)).getDataAsString();
+    }
+
+    const plainData = findPart(payload, 'text/plain');
+    if (plainData) {
+      const text = Utilities.newBlob(Utilities.base64DecodeWebSafe(plainData)).getDataAsString();
+      return '<pre style="font-family:inherit;white-space:pre-wrap;word-break:break-word;padding:12px">' + text + '</pre>';
+    }
+
+    return '<p style="color:#94a3b8;font-style:italic;padding:12px">(No readable content found)</p>';
+  } catch (error) {
+    Logger.log(`Error fetching draft content for ${draftId}: ${error.message}\nStack: ${error.stack}`);
+    throw new Error('Could not load draft preview.');
+  }
+}
