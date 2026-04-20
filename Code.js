@@ -857,3 +857,61 @@ function getDraftContent(draftId) {
     throw new Error('Could not load draft preview.');
   }
 }
+
+function sendDrafts(draftIds) {
+  const userEmail = Session.getEffectiveUser().getEmail();
+  const results = [];
+
+  draftIds.forEach(function(draftId) {
+    var subject = '(unknown)';
+    var to = '';
+
+    // Fetch metadata first so we can report it even after the draft is deleted
+    try {
+      var meta = Gmail.Users.Drafts.get('me', draftId, { format: 'metadata' });
+      var headers = meta.message.payload.headers;
+      subject = (headers.find(function(h) { return h.name.toLowerCase() === 'subject'; }) || {}).value || '(no subject)';
+      to = (headers.find(function(h) { return h.name.toLowerCase() === 'to'; }) || {}).value || '';
+    } catch (metaErr) {
+      Logger.log('Could not fetch metadata for draft ' + draftId + ': ' + metaErr.message);
+    }
+
+    try {
+      Gmail.Users.Drafts.send({ id: draftId }, 'me');
+      results.push({ draftId: draftId, subject: subject, to: to, success: true, error: null });
+    } catch (sendErr) {
+      Logger.log('Failed to send draft ' + draftId + ': ' + sendErr.message);
+      results.push({ draftId: draftId, subject: subject, to: to, success: false, error: sendErr.message });
+    }
+  });
+
+  logDraftHistory(userEmail, results);
+  return results;
+}
+
+function logDraftHistory(userEmail, results) {
+  var ss = SpreadsheetApp.openById(HISTORY_SHEET_ID);
+  var historySheet = ss.getSheetByName('Email History');
+
+  if (!historySheet) {
+    historySheet = ss.insertSheet('Email History');
+    historySheet.appendRow(['Timestamp', 'User Email', 'Template ID', 'Template Used', 'Emails Sent', 'Emails Skipped', 'Failed Emails']);
+  }
+
+  var sent = results.filter(function(r) { return r.success; });
+  var failed = results.filter(function(r) { return !r.success; });
+  var templateUsed = sent.length > 0 ? sent.map(function(r) { return r.subject; }).join(', ') : '(none sent)';
+  var failedText = failed.length > 0
+    ? failed.map(function(r) { return r.to + ' - ' + r.error; }).join('\n')
+    : 'None';
+
+  historySheet.appendRow([
+    new Date(),
+    userEmail,
+    'DRAFT',
+    templateUsed,
+    sent.length,
+    0,
+    failedText
+  ]);
+}
