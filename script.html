@@ -122,6 +122,7 @@
     const AirPostApp = () => {
         // --- GLOBAL STATE ---
         const [step, setStep] = useState(1);
+        const [activeTab, setActiveTab] = useState('campaign');
         const [isInitializing, setIsInitializing] = useState(true);
         const [globalData, setGlobalData] = useState({ userEmail: '', totalSent: 0 });
         const [toasts, setToasts] = useState([]);
@@ -539,8 +540,31 @@
                     </div>
                 </header>
 
+                {/* TAB BAR */}
+                <nav className="border-b border-[var(--border-moderate)] bg-[var(--surface-primary)]/30 shrink-0">
+                    <div className="flex gap-1 px-6">
+                        {[
+                            { id: 'campaign', icon: 'fa-paper-plane', label: 'Campaign' },
+                            { id: 'drafts', icon: 'fa-file-lines', label: 'Drafts' },
+                        ].map(tab => (
+                            <button
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id)}
+                                className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all ${
+                                    activeTab === tab.id
+                                        ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]'
+                                        : 'border-transparent text-[var(--text-secondary)] hover:text-white'
+                                }`}
+                            >
+                                <i className={`fa-solid ${tab.icon}`}></i> {tab.label}
+                            </button>
+                        ))}
+                    </div>
+                </nav>
+
                 <main className="flex-grow flex flex-col items-center p-4 min-h-0">
-                    
+
+                    {activeTab === 'campaign' && <>
                     {/* STEPPER */}
                     <div className="w-full max-w-6xl px-8 shrink-0">
                         <Stepper 
@@ -917,6 +941,12 @@
                             </div>
                         </div>
                     </div>
+                    </>}
+                    {activeTab === 'drafts' && (
+                        <div className="w-full max-w-6xl flex flex-col flex-grow items-center justify-center">
+                            <p className="text-[var(--text-secondary)]">Drafts view loading...</p>
+                        </div>
+                    )}
                 </main>
 
             </div>
