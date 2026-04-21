@@ -128,6 +128,18 @@ Added a "Sheet Tab" summary item between "Audience Data" and "Subject Line" show
 **Server:** `getDrafts(afterDate, beforeDate, pageToken?)` — optional `pageToken` param passed to `Drafts.list`; return type changed from `{ drafts, truncated }` to `{ drafts, nextPageToken }`.
 **Client:** Replaced `draftsTruncated` state with `draftsNextPageToken` + `isLoadingMoreDrafts`. Added `loadMoreDrafts()` function that appends results and auto-selects new drafts. Truncation warning replaced with a "Load More Drafts" button that hides automatically when all pages are exhausted.
 
+### ✅ #4 — `decodeBase64Part`: "data.replace is not a function" for byte-array MIME parts (`Code.js`)
+For some drafts, Apps Script's Gmail Advanced Service returns `body.data` as a byte array (already decoded) rather than a base64 string. `decodeBase64Part` called `.replace` unconditionally, crashing on non-string input.
+**Fix:** Added `typeof data !== 'string'` guard — byte arrays go directly to `Utilities.newBlob(data).getDataAsString()`, bypassing the base64 decoding path entirely. (`Code.js`)
+
+### ✅ #2 — `getDraftContent`: "Could not decode string" on valid drafts (`Code.js`)
+Some Gmail draft body parts are MIME-folded (base64 split with newlines every 76 chars) or use standard base64 (`+`/`/`) instead of URL-safe base64 (`-`/`_`). `Utilities.base64DecodeWebSafe` rejects both, throwing "Could not decode string."
+**Fix:** Extracted `decodeBase64Part(data)` helper between `findMimePart` and `getDraftContent`. It strips whitespace and normalizes `+`→`-` and `/`→`_` before decoding. Replaced both inline decode calls in `getDraftContent` with the helper. (`Code.js`)
+
+### ✅ #3 — Drafts tab requires manual filter click on every visit (`script.html`)
+Users had to click "Filter" each time they opened the Drafts tab even though the default date range (last 7 days → today) was already set. Added a `useRef` flag (`draftsFetchInitiated`) and a `useEffect([activeTab])` inside `AirPostApp` that calls `fetchDrafts()` exactly once on first Drafts tab entry. Subsequent tab switches preserve the existing results.
+**Fix:** Added `useRef` to the React destructure; added ref + effect after the existing effect block. (`script.html`)
+
 ---
 
 ## valecantu04/fix-email
