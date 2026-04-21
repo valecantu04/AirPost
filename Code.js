@@ -861,7 +861,10 @@ function getDraftContent(draftId) {
     return '<p style="color:#94a3b8;font-style:italic;padding:12px">(No readable content found)</p>';
   } catch (error) {
     Logger.log(`Error fetching draft content for ${draftId}: ${error.message}\nStack: ${error.stack}`);
-    throw new Error('Could not load draft preview.');
+    if (error.message && (error.message.includes('404') || error.message.toLowerCase().includes('not found'))) {
+      throw new Error('Draft not found');
+    }
+    throw new Error(`Could not load draft preview: ${error.message}`);
   }
 }
 
