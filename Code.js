@@ -843,6 +843,9 @@ function findMimePart(part, mimeType) {
 }
 
 function decodeBase64Part(data) {
+  if (typeof data !== 'string') {
+    return Utilities.newBlob(data).getDataAsString();
+  }
   const clean = data.replace(/\s/g, '').replace(/\+/g, '-').replace(/\//g, '_');
   return Utilities.newBlob(Utilities.base64DecodeWebSafe(clean)).getDataAsString();
 }
