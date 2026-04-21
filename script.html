@@ -193,7 +193,8 @@
         const [selectedDraftIds, setSelectedDraftIds] = useState(() => new Set());
         const [isSendingDrafts, setIsSendingDrafts] = useState(false);
         const [draftSendResults, setDraftSendResults] = useState(null);
-        const [draftsTruncated, setDraftsTruncated] = useState(false);
+        const [draftsNextPageToken, setDraftsNextPageToken] = useState(null);
+        const [isLoadingMoreDrafts, setIsLoadingMoreDrafts] = useState(false);
 
         // --- STEPPER NAVIGATION ---
         const handleStepperClick = (targetStep) => {
@@ -521,11 +522,11 @@
             setIsFetchingDrafts(true);
             setDraftSendResults(null);
             setExpandedDraftId(null);
-            setDraftsTruncated(false);
+            setDraftsNextPageToken(null);
             try {
-                const { drafts: results, truncated } = await runGas('getDrafts', draftStartDate, draftEndDate);
+                const { drafts: results, nextPageToken } = await runGas('getDrafts', draftStartDate, draftEndDate);
                 setDrafts(results);
-                setDraftsTruncated(truncated);
+                setDraftsNextPageToken(nextPageToken);
                 setDraftContentCache({});
                 setSelectedDraftIds(new Set(results.map(d => d.id)));
             } catch (err) {
@@ -535,6 +536,24 @@
                 setDraftContentCache({});
             } finally {
                 setIsFetchingDrafts(false);
+            }
+        };
+
+        const loadMoreDrafts = async () => {
+            setIsLoadingMoreDrafts(true);
+            try {
+                const { drafts: moreResults, nextPageToken } = await runGas('getDrafts', draftStartDate, draftEndDate, draftsNextPageToken);
+                setDrafts(prev => [...prev, ...moreResults]);
+                setDraftsNextPageToken(nextPageToken);
+                setSelectedDraftIds(prev => {
+                    const next = new Set(prev);
+                    moreResults.forEach(d => next.add(d.id));
+                    return next;
+                });
+            } catch (err) {
+                addToast('Failed to load more drafts. Please try again.', 'error');
+            } finally {
+                setIsLoadingMoreDrafts(false);
             }
         };
 
@@ -1107,13 +1126,6 @@
                                         Filter is based on draft creation date. Results for reply drafts may vary.
                                     </p>
 
-                                    {draftsTruncated && (
-                                        <p className="text-xs text-[var(--text-disabled)] flex items-center gap-1.5 mb-4 shrink-0">
-                                            <i className="fa-solid fa-triangle-exclamation text-amber-400"></i>
-                                            Showing first 50 drafts — narrow your date range to see all.
-                                        </p>
-                                    )}
-
                                     {drafts.length === 0 && !isFetchingDrafts && (
                                         <div className="app-card text-center text-[var(--text-secondary)] text-sm py-8">
                                             <i className="fa-solid fa-inbox text-2xl mb-3 block text-[var(--text-disabled)]"></i>
@@ -1204,6 +1216,20 @@
                                                     </div>
                                                 );
                                             })}
+
+                                            {draftsNextPageToken && (
+                                                <div className="flex justify-center shrink-0">
+                                                    <button
+                                                        onClick={loadMoreDrafts}
+                                                        disabled={isLoadingMoreDrafts || isSendingDrafts}
+                                                        className="btn btn-secondary"
+                                                    >
+                                                        {isLoadingMoreDrafts
+                                                            ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Loading...</>
+                                                            : <><i className="fa-solid fa-chevron-down"></i> Load More Drafts</>}
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>

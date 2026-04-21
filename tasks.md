@@ -121,6 +121,15 @@ Added a "Sheet Tab" summary item between "Audience Data" and "Subject Line" show
 
 ---
 
+## feature/drafts-view — Drafts Pagination
+
+### ✅ #1 — Cursor-based pagination for `getDrafts` (`Code.js`, `script.html`)
+`getDrafts` was capped at 50 results with a static truncation notice. Implemented "Load More" pagination using Gmail API's `nextPageToken`.
+**Server:** `getDrafts(afterDate, beforeDate, pageToken?)` — optional `pageToken` param passed to `Drafts.list`; return type changed from `{ drafts, truncated }` to `{ drafts, nextPageToken }`.
+**Client:** Replaced `draftsTruncated` state with `draftsNextPageToken` + `isLoadingMoreDrafts`. Added `loadMoreDrafts()` function that appends results and auto-selects new drafts. Truncation warning replaced with a "Load More Drafts" button that hides automatically when all pages are exhausted.
+
+---
+
 ## valecantu04/fix-email
 
 ### ✅ #1 — Document Tabs headings appear in email body (`Code.js`)

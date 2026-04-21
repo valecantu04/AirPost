@@ -789,13 +789,15 @@ function getGmailHeader(headers, name) {
   return (headers.find(h => h.name.toLowerCase() === name.toLowerCase()) || {}).value || '';
 }
 
-function getDrafts(afterDate, beforeDate) {
+function getDrafts(afterDate, beforeDate, pageToken) {
   try {
     const afterQuery = afterDate.replace(/-/g, '/');
     const beforeQuery = beforeDate.replace(/-/g, '/');
     const query = `after:${afterQuery} before:${beforeQuery}`;
 
-    const listResult = Gmail.Users.Drafts.list('me', { q: query, maxResults: 50 });
+    const listParams = { q: query, maxResults: 50 };
+    if (pageToken) listParams.pageToken = pageToken;
+    const listResult = Gmail.Users.Drafts.list('me', listParams);
     const draftItems = listResult.drafts || [];
 
     const drafts = draftItems.map(item => {
@@ -816,7 +818,7 @@ function getDrafts(afterDate, beforeDate) {
         return null;
       }
     }).filter(Boolean);
-    return { drafts: drafts, truncated: !!listResult.nextPageToken };
+    return { drafts: drafts, nextPageToken: listResult.nextPageToken || null };
   } catch (error) {
     Logger.log(`Error fetching drafts: ${error.message}\nStack: ${error.stack}`);
     throw new Error('Failed to load drafts. Please try again.');
