@@ -382,15 +382,18 @@ function sendEmailsWithSheet(sheetId, templateId, subject, tabName, fromEmail, f
   }
 }
 
-function logEmailHistory(userEmail, templateId, emailsSent, emailsSkipped, failedEmails) {
-  // Use HISTORY_SHEET_ID constant
+function getOrCreateHistorySheet() {
   const ss = SpreadsheetApp.openById(HISTORY_SHEET_ID);
-  let historySheet = ss.getSheetByName("Email History");
-
-  if (!historySheet) {
-    historySheet = ss.insertSheet("Email History");
-    historySheet.appendRow(["Timestamp", "User Email", "Template ID", "Template Used", "Emails Sent", "Emails Skipped", "Failed Emails"]);
+  let sheet = ss.getSheetByName('Email History');
+  if (!sheet) {
+    sheet = ss.insertSheet('Email History');
+    sheet.appendRow(['Timestamp', 'User Email', 'Template ID', 'Template Used', 'Emails Sent', 'Emails Skipped', 'Failed Emails']);
   }
+  return sheet;
+}
+
+function logEmailHistory(userEmail, templateId, emailsSent, emailsSkipped, failedEmails) {
+  const historySheet = getOrCreateHistorySheet();
 
   // Get template name once
   // Important: templateId here is a file ID, not a folder ID, so use getFileById
@@ -827,31 +830,28 @@ function getDrafts(afterDate, beforeDate, pageToken) {
   }
 }
 
+function findMimePart(part, mimeType) {
+  if (!part) return null;
+  if (part.mimeType === mimeType && part.body && part.body.data) return part.body.data;
+  if (part.parts) {
+    for (const subPart of part.parts) {
+      const found = findMimePart(subPart, mimeType);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 function getDraftContent(draftId) {
   try {
     const draft = Gmail.Users.Drafts.get('me', draftId, { format: 'full' });
     const payload = draft.message.payload;
-
-    function findPart(part, mimeType) {
-      if (!part) return null;
-      if (part.mimeType === mimeType && part.body && part.body.data) {
-        return part.body.data;
-      }
-      if (part.parts) {
-        for (const subPart of part.parts) {
-          const found = findPart(subPart, mimeType);
-          if (found) return found;
-        }
-      }
-      return null;
-    }
-
-    const htmlData = findPart(payload, 'text/html');
+    const htmlData = findMimePart(payload, 'text/html');
     if (htmlData) {
       return Utilities.newBlob(Utilities.base64DecodeWebSafe(htmlData)).getDataAsString();
     }
 
-    const plainData = findPart(payload, 'text/plain');
+    const plainData = findMimePart(payload, 'text/plain');
     if (plainData) {
       const text = Utilities.newBlob(Utilities.base64DecodeWebSafe(plainData)).getDataAsString();
       return '<pre style="font-family:inherit;white-space:pre-wrap;word-break:break-word;padding:12px">' + text + '</pre>';
@@ -872,52 +872,37 @@ function sendDrafts(draftIds) {
   const userEmail = Session.getActiveUser().getEmail();
   const results = [];
 
-  draftIds.forEach(function(draftId) {
-    var subject = '(unknown)';
-    var to = '';
+  for (const draftId of draftIds) {
+    let subject = '(unknown)';
+    let to = '';
 
     // Fetch metadata first so we can report it even after the draft is deleted
     try {
-      var meta = Gmail.Users.Drafts.get('me', draftId, { format: 'metadata' });
-      var headers = meta.message.payload.headers;
+      const meta = Gmail.Users.Drafts.get('me', draftId, { format: 'metadata' });
+      const headers = meta.message.payload.headers;
       subject = getGmailHeader(headers, 'Subject') || '(no subject)';
       to = getGmailHeader(headers, 'To');
     } catch (metaErr) {
-      Logger.log('Could not fetch metadata for draft ' + draftId + ': ' + metaErr.message);
+      Logger.log(`Could not fetch metadata for draft ${draftId}: ${metaErr.message}`);
     }
 
     try {
       Gmail.Users.Drafts.send({ id: draftId }, 'me');
-      results.push({ draftId: draftId, subject: subject, to: to, success: true, error: null });
+      results.push({ draftId, subject, to, success: true, error: null });
     } catch (sendErr) {
-      Logger.log('Failed to send draft ' + draftId + ': ' + sendErr.message);
-      results.push({ draftId: draftId, subject: subject, to: to, success: false, error: sendErr.message });
+      Logger.log(`Failed to send draft ${draftId}: ${sendErr.message}`);
+      results.push({ draftId, subject, to, success: false, error: sendErr.message });
     }
-  });
+  }
 
   logDraftHistory(userEmail, results);
   return results;
 }
 
 function logDraftHistory(userEmail, results) {
-  var ss = SpreadsheetApp.openById(HISTORY_SHEET_ID);
-  var historySheet = ss.getSheetByName('Email History');
-
-  if (!historySheet) {
-    historySheet = ss.insertSheet('Email History');
-    historySheet.appendRow(['Timestamp', 'User Email', 'Template ID', 'Template Used', 'Emails Sent', 'Emails Skipped', 'Failed Emails']);
-  }
-
-  var sent = results.filter(function(r) { return r.success; });
-  var failed = results.filter(function(r) { return !r.success; });
-  var templateUsed = sent.length > 0 ? sent.map(function(r) { return r.subject; }).join(', ') : '(none sent)';
-  historySheet.appendRow([
-    new Date(),
-    userEmail,
-    'DRAFT',
-    templateUsed,
-    sent.length,
-    0,
-    failed.length
-  ]);
+  const historySheet = getOrCreateHistorySheet();
+  const sent = results.filter(r => r.success);
+  const failed = results.filter(r => !r.success);
+  const templateUsed = sent.length > 0 ? sent.map(r => r.subject).join(', ') : '(none sent)';
+  historySheet.appendRow([new Date(), userEmail, 'DRAFT', templateUsed, sent.length, 0, failed.length]);
 }

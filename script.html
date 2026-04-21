@@ -11,6 +11,12 @@
         });
     };
 
+    const omitKeys = (obj, keys) => {
+        const next = { ...obj };
+        keys.forEach(k => delete next[k]);
+        return next;
+    };
+
     const WORKFLOW_STEPS = [
         { id: 'setup', label: 'Campaign Setup' },
         { id: 'audience', label: 'Audience' },
@@ -186,6 +192,10 @@
             return d.toISOString().slice(0, 10);
         });
         const [draftEndDate, setDraftEndDate] = useState(() => new Date().toISOString().slice(0, 10));
+        const [committedDraftDates, setCommittedDraftDates] = useState(() => ({
+            start: new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10),
+            end: new Date().toISOString().slice(0, 10),
+        }));
         const [drafts, setDrafts] = useState([]);
         const [isFetchingDrafts, setIsFetchingDrafts] = useState(false);
         const [expandedDraftId, setExpandedDraftId] = useState(null);
@@ -524,6 +534,7 @@
             setDraftSendResults(null);
             setExpandedDraftId(null);
             setDraftsNextPageToken(null);
+            setCommittedDraftDates({ start: draftStartDate, end: draftEndDate });
             try {
                 const { drafts: results, nextPageToken } = await runGas('getDrafts', draftStartDate, draftEndDate);
                 setDrafts(results);
@@ -545,7 +556,7 @@
         const loadMoreDrafts = async () => {
             setIsLoadingMoreDrafts(true);
             try {
-                const { drafts: moreResults, nextPageToken } = await runGas('getDrafts', draftStartDate, draftEndDate, draftsNextPageToken);
+                const { drafts: moreResults, nextPageToken } = await runGas('getDrafts', committedDraftDates.start, committedDraftDates.end, draftsNextPageToken);
                 setDrafts(prev => [...prev, ...moreResults]);
                 setDraftsNextPageToken(nextPageToken);
                 setSelectedDraftIds(prev => {
@@ -628,16 +639,9 @@
                     return next;
                 });
                 setExpandedDraftId(null);
-                setDraftContentCache(prev => {
-                    const next = { ...prev };
-                    sentIds.forEach(id => delete next[id]);
-                    return next;
-                });
-                setDraftContentErrors(prev => {
-                    const next = { ...prev };
-                    sentIds.forEach(id => delete next[id]);
-                    return next;
-                });
+                const pruned = Array.from(sentIds);
+                setDraftContentCache(prev => omitKeys(prev, pruned));
+                setDraftContentErrors(prev => omitKeys(prev, pruned));
 
                 const sentCount = sentIds.size;
                 const failedCount = results.length - sentCount;
