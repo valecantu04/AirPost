@@ -195,6 +195,7 @@
         const [draftSendResults, setDraftSendResults] = useState(null);
         const [draftsNextPageToken, setDraftsNextPageToken] = useState(null);
         const [isLoadingMoreDrafts, setIsLoadingMoreDrafts] = useState(false);
+        const [draftContentErrors, setDraftContentErrors] = useState({});
 
         // --- STEPPER NAVIGATION ---
         const handleStepperClick = (targetStep) => {
@@ -528,12 +529,14 @@
                 setDrafts(results);
                 setDraftsNextPageToken(nextPageToken);
                 setDraftContentCache({});
+                setDraftContentErrors({});
                 setSelectedDraftIds(new Set(results.map(d => d.id)));
             } catch (err) {
                 addToast('Failed to load drafts. Please try again.', 'error');
                 setDrafts([]);
                 setSelectedDraftIds(new Set());
                 setDraftContentCache({});
+                setDraftContentErrors({});
             } finally {
                 setIsFetchingDrafts(false);
             }
@@ -573,6 +576,22 @@
             }
         };
 
+        const loadDraftContent = async (draftId) => {
+            if (draftContentCache[draftId]) return;
+            try {
+                const html = await runGas('getDraftContent', draftId);
+                setDraftContentCache(prev => ({ ...prev, [draftId]: html }));
+            } catch (err) {
+                const notFound = err.message === 'Draft not found';
+                setDraftContentErrors(prev => ({ ...prev, [draftId]: { message: err.message, notFound } }));
+                if (notFound) {
+                    setDrafts(prev => prev.filter(d => d.id !== draftId));
+                    setSelectedDraftIds(prev => { const s = new Set(prev); s.delete(draftId); return s; });
+                    setExpandedDraftId(null);
+                }
+            }
+        };
+
         const handleExpandDraft = async (draftId) => {
             if (expandedDraftId === draftId) {
                 setExpandedDraftId(null);
@@ -580,15 +599,8 @@
             }
             setExpandedDraftId(draftId);
             if (draftContentCache[draftId]) return;
-            try {
-                const html = await runGas('getDraftContent', draftId);
-                setDraftContentCache(prev => ({ ...prev, [draftId]: html }));
-            } catch (err) {
-                setDraftContentCache(prev => ({
-                    ...prev,
-                    [draftId]: '<p style="color:#ff5664;font-style:italic;padding:12px">Could not load preview.</p>'
-                }));
-            }
+            setDraftContentErrors(prev => { const next = { ...prev }; delete next[draftId]; return next; });
+            await loadDraftContent(draftId);
         };
 
         const handleSendDrafts = () => {
@@ -1205,6 +1217,24 @@
                                                                         style={{ height: '300px', width: '100%', border: 'none', background: '#fff' }}
                                                                         title={`Preview: ${draft.subject}`}
                                                                     />
+                                                                ) : draftContentErrors[draft.id] ? (
+                                                                    <div className="bg-white flex flex-col items-center justify-center gap-2 py-6">
+                                                                        <p style={{ color: '#ff5664', fontStyle: 'italic', fontSize: '0.875rem', textAlign: 'center', padding: '0 12px' }}>
+                                                                            {draftContentErrors[draft.id].message}
+                                                                        </p>
+                                                                        {!draftContentErrors[draft.id].notFound && (
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setDraftContentErrors(prev => { const next = { ...prev }; delete next[draft.id]; return next; });
+                                                                                    loadDraftContent(draft.id);
+                                                                                }}
+                                                                                className="btn btn-secondary"
+                                                                                style={{ fontSize: '0.75rem', padding: '4px 12px' }}
+                                                                            >
+                                                                                <i className="fa-solid fa-rotate-right"></i> Retry
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
                                                                 ) : (
                                                                     <div className="bg-white h-32 flex items-center justify-center text-gray-400">
                                                                         <i className="fa-solid fa-circle-notch fa-spin text-[var(--brand-primary)] text-xl"></i>
