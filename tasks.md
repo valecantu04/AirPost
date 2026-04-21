@@ -140,6 +140,14 @@ Some Gmail draft body parts are MIME-folded (base64 split with newlines every 76
 Users had to click "Filter" each time they opened the Drafts tab even though the default date range (last 7 days → today) was already set. Added a `useRef` flag (`draftsFetchInitiated`) and a `useEffect([activeTab])` inside `AirPostApp` that calls `fetchDrafts()` exactly once on first Drafts tab entry. Subsequent tab switches preserve the existing results.
 **Fix:** Added `useRef` to the React destructure; added ref + effect after the existing effect block. (`script.html`)
 
+### ✅ #6 — Campaign preview broken by missing `UrlFetchApp` OAuth scope (`appsscript.json`)
+`getTemplateContent` calls `UrlFetchApp.fetch` to export the Google Doc as HTML. When commit `9098ac8` pinned an explicit `oauthScopes` list in the manifest, Apps Script's automatic scope detection was disabled and `https://www.googleapis.com/auth/script.external_request` was not included — causing every preview call to throw "Specified permissions are not sufficient to call UrlFetchApp.fetch."
+**Fix:** Added `"https://www.googleapis.com/auth/script.external_request"` to `oauthScopes` in `appsscript.json`. After `clasp push`, the app will prompt for reauthorization on next visit.
+
+### ✅ #5 — HowItWorksModal: Add static guide modal to AirPost
+No in-app documentation existed; new users had no discoverable reference for how Campaign and Drafts workflows operate.
+**Fix:** Added a `HowItWorksModal` React component with a two-column layout (180px sidebar nav + scrollable content pane) covering 5 sections: Campaign, Template Placeholders, Audience Sheet, Drafts, and Send History. Content is driven by a `GUIDE_SECTIONS` constant at module scope in `script.html`. Guide button (book icon) added to header far right. CSS classes added to `styles.html` using Airfoil tokens; `--status-warning` token added to `:root`. CLAUDE.md rule appended to keep the guide in sync with future feature changes. (`script.html`, `styles.html`, `CLAUDE.md`)
+
 ---
 
 ## valecantu04/fix-email
