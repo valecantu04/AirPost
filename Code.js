@@ -876,7 +876,6 @@ function sendDrafts(draftIds) {
     let subject = '(unknown)';
     let to = '';
 
-    // Fetch metadata first so we can report it even after the draft is deleted
     try {
       const meta = Gmail.Users.Drafts.get('me', draftId, { format: 'metadata' });
       const headers = meta.message.payload.headers;
@@ -895,7 +894,11 @@ function sendDrafts(draftIds) {
     }
   }
 
-  logDraftHistory(userEmail, results);
+  try {
+    logDraftHistory(userEmail, results);
+  } catch (logErr) {
+    Logger.log(`Failed to log draft history: ${logErr.message}`);
+  }
   return results;
 }
 
