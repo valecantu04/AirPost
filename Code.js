@@ -792,7 +792,9 @@ function getGmailHeader(headers, name) {
 function getDrafts(afterDate, beforeDate, pageToken) {
   try {
     const afterQuery = afterDate.replace(/-/g, '/');
-    const beforeQuery = beforeDate.replace(/-/g, '/');
+    const d = new Date(beforeDate + 'T12:00:00Z');
+    d.setUTCDate(d.getUTCDate() + 1);
+    const beforeQuery = d.toISOString().slice(0, 10).replace(/-/g, '/');
     const query = `after:${afterQuery} before:${beforeQuery}`;
 
     const listParams = { q: query, maxResults: 50 };
