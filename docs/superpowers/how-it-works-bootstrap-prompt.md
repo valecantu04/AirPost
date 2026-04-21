@@ -47,7 +47,7 @@ GuideSection {
   flows?: GuideFlowNode[][]  // array of chains; each chain is an ordered node array
   steps?: GuideStep[]
   callouts?: GuideCallout[]
-  mockup?: () => any  // optional render function returning a framework-native UI element
+  mockup?: () => any  // optional render function returning a framework-native UI element (e.g. JSX, VNode, HTMLElement)
 }
 ```
 
@@ -93,7 +93,7 @@ Add a "Guide" button to the main nav or header. The button should:
 
 ## Step 5 — Add the CLAUDE.md rule
 
-Append this rule to the project's CLAUDE.md (or equivalent agent instructions file, or create one if it doesn't exist):
+Append this rule to the project's CLAUDE.md (or equivalent agent instructions file, or create one if it doesn't exist). Replace `[the content file path you chose]` with the actual path you created in Step 2 before appending:
 
 **How It Works guide:** When adding, modifying, or removing any user-facing feature or workflow, update `[the content file path you chose]` to reflect the change. Add a new `GuideSection` entry for new features, update existing steps/callouts for changed behavior, and remove stale content for removed features. The guide must stay in sync with the app.
 
