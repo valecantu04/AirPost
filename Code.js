@@ -859,7 +859,7 @@ function getDraftContent(draftId) {
 }
 
 function sendDrafts(draftIds) {
-  const userEmail = Session.getEffectiveUser().getEmail();
+  const userEmail = Session.getActiveUser().getEmail();
   const results = [];
 
   draftIds.forEach(function(draftId) {
