@@ -531,6 +531,8 @@
             } catch (err) {
                 addToast('Failed to load drafts. Please try again.', 'error');
                 setDrafts([]);
+                setSelectedDraftIds(new Set());
+                setDraftContentCache({});
             } finally {
                 setIsFetchingDrafts(false);
             }
