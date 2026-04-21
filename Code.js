@@ -798,7 +798,7 @@ function getDrafts(afterDate, beforeDate) {
     const listResult = Gmail.Users.Drafts.list('me', { q: query, maxResults: 50 });
     const draftItems = listResult.drafts || [];
 
-    return draftItems.map(item => {
+    const drafts = draftItems.map(item => {
       try {
         const draft = Gmail.Users.Drafts.get('me', item.id, { format: 'metadata' });
         const headers = draft.message.payload.headers;
@@ -816,6 +816,7 @@ function getDrafts(afterDate, beforeDate) {
         return null;
       }
     }).filter(Boolean);
+    return { drafts: drafts, truncated: !!listResult.nextPageToken };
   } catch (error) {
     Logger.log(`Error fetching drafts: ${error.message}\nStack: ${error.stack}`);
     throw new Error('Failed to load drafts. Please try again.');
@@ -852,6 +853,7 @@ function getDraftContent(draftId) {
       return '<pre style="font-family:inherit;white-space:pre-wrap;word-break:break-word;padding:12px">' + text + '</pre>';
     }
 
+    // #94a3b8 = var(--text-disabled); CSS vars don't cascade into sandboxed iframes
     return '<p style="color:#94a3b8;font-style:italic;padding:12px">(No readable content found)</p>';
   } catch (error) {
     Logger.log(`Error fetching draft content for ${draftId}: ${error.message}\nStack: ${error.stack}`);
@@ -902,10 +904,6 @@ function logDraftHistory(userEmail, results) {
   var sent = results.filter(function(r) { return r.success; });
   var failed = results.filter(function(r) { return !r.success; });
   var templateUsed = sent.length > 0 ? sent.map(function(r) { return r.subject; }).join(', ') : '(none sent)';
-  var failedText = failed.length > 0
-    ? failed.map(function(r) { return r.to + ' - ' + r.error; }).join('\n')
-    : 'None';
-
   historySheet.appendRow([
     new Date(),
     userEmail,
@@ -913,6 +911,6 @@ function logDraftHistory(userEmail, results) {
     templateUsed,
     sent.length,
     0,
-    failedText
+    failed.length
   ]);
 }
