@@ -1085,43 +1085,45 @@
                                 <ToastContainer toasts={toasts} />
 
                                 <div className="flex-grow p-8 flex flex-col overflow-y-auto custom-scrollbar relative">
-                                    <div className="mb-6 border-b border-[var(--border-moderate)] pb-4 shrink-0">
-                                        <h2 className="text-2xl font-bold flex items-center gap-2">
-                                            <i className="fa-solid fa-file-lines text-[var(--brand-primary)]"></i> Drafts
-                                        </h2>
-                                        <p className="text-[var(--text-secondary)] mt-1 text-sm">Filter, preview, and send emails from your Gmail Drafts.</p>
+                                    <div className="mb-6 border-b border-[var(--border-moderate)] pb-4 shrink-0 flex justify-between items-start gap-4">
+                                        <div>
+                                            <h2 className="text-2xl font-bold flex items-center gap-2">
+                                                <i className="fa-solid fa-file-lines text-[var(--brand-primary)]"></i> Drafts
+                                            </h2>
+                                            <p className="text-[var(--text-secondary)] mt-1 text-sm">Filter, preview, and send emails from your Gmail Drafts.</p>
+                                        </div>
+                                        <div className="flex flex-col items-end shrink-0">
+                                            <div className="flex items-center gap-2 bg-black/20 border border-[var(--border-moderate)] rounded-lg px-3 py-2">
+                                                <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Created</span>
+                                                <input
+                                                    type="date"
+                                                    className="form-input w-auto text-sm py-1"
+                                                    value={draftStartDate}
+                                                    onChange={e => setDraftStartDate(e.target.value)}
+                                                />
+                                                <span className="text-[var(--text-disabled)]">→</span>
+                                                <input
+                                                    type="date"
+                                                    className="form-input w-auto text-sm py-1"
+                                                    value={draftEndDate}
+                                                    onChange={e => setDraftEndDate(e.target.value)}
+                                                />
+                                                <button
+                                                    onClick={fetchDrafts}
+                                                    disabled={isFetchingDrafts || isSendingDrafts}
+                                                    className="btn btn-primary"
+                                                >
+                                                    {isFetchingDrafts
+                                                        ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Loading...</>
+                                                        : <><i className="fa-solid fa-filter"></i> Filter</>}
+                                                </button>
+                                            </div>
+                                            <p className="text-xs text-[var(--text-disabled)] flex items-center gap-1.5 mt-2">
+                                                <i className="fa-solid fa-circle-info"></i>
+                                                Filter is based on draft creation date. Results for reply drafts may vary.
+                                            </p>
+                                        </div>
                                     </div>
-
-                                    <div className="app-card flex flex-wrap items-center gap-3 mb-6 shrink-0">
-                                        <span className="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Created</span>
-                                        <input
-                                            type="date"
-                                            className="form-input"
-                                            value={draftStartDate}
-                                            onChange={e => setDraftStartDate(e.target.value)}
-                                        />
-                                        <span className="text-[var(--text-disabled)]">→</span>
-                                        <input
-                                            type="date"
-                                            className="form-input"
-                                            value={draftEndDate}
-                                            onChange={e => setDraftEndDate(e.target.value)}
-                                        />
-                                        <button
-                                            onClick={fetchDrafts}
-                                            disabled={isFetchingDrafts || isSendingDrafts}
-                                            className="btn btn-primary"
-                                        >
-                                            {isFetchingDrafts
-                                                ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Loading...</>
-                                                : <><i className="fa-solid fa-filter"></i> Filter</>}
-                                        </button>
-                                    </div>
-
-                                    <p className="text-xs text-[var(--text-disabled)] flex items-center gap-1.5 -mt-3 mb-4 shrink-0">
-                                        <i className="fa-solid fa-circle-info"></i>
-                                        Filter is based on draft creation date. Results for reply drafts may vary.
-                                    </p>
 
                                     {drafts.length === 0 && !isFetchingDrafts && (
                                         <div className="app-card text-center text-[var(--text-secondary)] text-sm py-8">
