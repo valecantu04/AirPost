@@ -785,9 +785,12 @@ function getTotalSentEmailCount() {
   }
 }
 
+function getGmailHeader(headers, name) {
+  return (headers.find(h => h.name.toLowerCase() === name.toLowerCase()) || {}).value || '';
+}
+
 function getDrafts(afterDate, beforeDate) {
   try {
-    // Gmail search query uses YYYY/MM/DD format
     const afterQuery = afterDate.replace(/-/g, '/');
     const beforeQuery = beforeDate.replace(/-/g, '/');
     const query = `after:${afterQuery} before:${beforeQuery}`;
@@ -799,15 +802,13 @@ function getDrafts(afterDate, beforeDate) {
       try {
         const draft = Gmail.Users.Drafts.get('me', item.id, { format: 'metadata' });
         const headers = draft.message.payload.headers;
-        const getHeader = (name) =>
-          (headers.find(h => h.name.toLowerCase() === name.toLowerCase()) || {}).value || '';
 
         return {
           id: item.id,
-          subject: getHeader('Subject') || '(no subject)',
-          to: getHeader('To'),
-          cc: getHeader('Cc'),
-          from: getHeader('From'),
+          subject: getGmailHeader(headers, 'Subject') || '(no subject)',
+          to: getGmailHeader(headers, 'To'),
+          cc: getGmailHeader(headers, 'Cc'),
+          from: getGmailHeader(headers, 'From'),
           createdAt: new Date(parseInt(draft.message.internalDate)).toISOString()
         };
       } catch (e) {
@@ -870,8 +871,8 @@ function sendDrafts(draftIds) {
     try {
       var meta = Gmail.Users.Drafts.get('me', draftId, { format: 'metadata' });
       var headers = meta.message.payload.headers;
-      subject = (headers.find(function(h) { return h.name.toLowerCase() === 'subject'; }) || {}).value || '(no subject)';
-      to = (headers.find(function(h) { return h.name.toLowerCase() === 'to'; }) || {}).value || '';
+      subject = getGmailHeader(headers, 'Subject') || '(no subject)';
+      to = getGmailHeader(headers, 'To');
     } catch (metaErr) {
       Logger.log('Could not fetch metadata for draft ' + draftId + ': ' + metaErr.message);
     }

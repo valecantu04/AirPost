@@ -119,6 +119,20 @@
         );
     };
 
+    const ToastContainer = ({ toasts }) => (
+        <div className="absolute top-8 right-8 z-[100] flex flex-col gap-3 pointer-events-none">
+            {toasts.map(toast => (
+                <div key={toast.id} className={`${toast.isExiting ? 'toast-exit' : 'toast-enter'} pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-lg shadow-2xl border-l-4 ${toast.type === 'success' ? 'border-[var(--status-success)]' : 'border-[var(--status-critical)]'} bg-[var(--surface-primary)] text-white min-w-[280px] max-w-[350px] border border-[var(--border-moderate)]`}>
+                    <i className={`fa-solid ${toast.type === 'success' ? 'fa-circle-check text-[var(--status-success)]' : 'fa-triangle-exclamation text-[var(--status-critical)]'} text-xl`}></i>
+                    <div className="flex flex-col">
+                        <span className="font-bold text-sm tracking-wide uppercase">{toast.type === 'success' ? 'Success' : 'Notice'}</span>
+                        <span className="text-xs text-[var(--text-secondary)] mt-0.5">{toast.message}</span>
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+
     const AirPostApp = () => {
         // --- GLOBAL STATE ---
         const [step, setStep] = useState(1);
@@ -166,7 +180,6 @@
         const closeModal = () => setModal(prev => ({ ...prev, isOpen: false }));
         const handleModalConfirm = () => { modal.onConfirm?.(); closeModal(); };
 
-        // Draft State
         const [draftStartDate, setDraftStartDate] = useState(() => {
             const d = new Date();
             d.setDate(d.getDate() - 7);
@@ -503,7 +516,6 @@
             });
         };
 
-        // --- DRAFTS LOGIC ---
         const fetchDrafts = async () => {
             setIsFetchingDrafts(true);
             setDraftSendResults(null);
@@ -511,6 +523,7 @@
             try {
                 const results = await runGas('getDrafts', draftStartDate, draftEndDate);
                 setDrafts(results);
+                setDraftContentCache({});
                 setSelectedDraftIds(new Set(results.map(d => d.id)));
             } catch (err) {
                 addToast('Failed to load drafts. Please try again.', 'error');
@@ -586,8 +599,8 @@
                     return next;
                 });
 
-                const sentCount = results.filter(r => r.success).length;
-                const failedCount = results.filter(r => !r.success).length;
+                const sentCount = sentIds.size;
+                const failedCount = results.length - sentCount;
 
                 if (failedCount === 0) {
                     addToast(`${sentCount} draft${sentCount === 1 ? '' : 's'} sent successfully.`, 'success');
@@ -655,7 +668,6 @@
                     </div>
                 </header>
 
-                {/* TAB BAR */}
                 <nav className="border-b border-[var(--border-moderate)] bg-[var(--surface-primary)]/30 shrink-0">
                     <div className="flex gap-1 px-6">
                         {[
@@ -696,18 +708,7 @@
                         {/* This handles fixed toast positioning and hides overflow so the toast appears to slide from under the sidebar */}
                         <div className="flex-grow flex flex-col relative overflow-hidden">
                             
-                            {/* TOAST SYSTEM RENDERING */}
-                            <div className="absolute top-8 right-8 z-[100] flex flex-col gap-3 pointer-events-none">
-                                {toasts.map(toast => (
-                                    <div key={toast.id} className={`${toast.isExiting ? 'toast-exit' : 'toast-enter'} pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-lg shadow-2xl border-l-4 ${toast.type === 'success' ? 'border-[var(--status-success)]' : 'border-[var(--status-critical)]'} bg-[var(--surface-primary)] text-white min-w-[280px] max-w-[350px] border border-[var(--border-moderate)]`}>
-                                        <i className={`fa-solid ${toast.type === 'success' ? 'fa-circle-check text-[var(--status-success)]' : 'fa-triangle-exclamation text-[var(--status-critical)]'} text-xl`}></i>
-                                        <div className="flex flex-col">
-                                            <span className="font-bold text-sm tracking-wide uppercase">{toast.type === 'success' ? 'Success' : 'Notice'}</span>
-                                            <span className="text-xs text-[var(--text-secondary)] mt-0.5">{toast.message}</span>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
+                            <ToastContainer toasts={toasts} />
 
                             {/* LEFT COLUMN: Main Forms (Now scrollable inside the wrapper) */}
                             <div className="flex-grow p-8 flex flex-col overflow-y-auto custom-scrollbar relative">
@@ -1059,20 +1060,8 @@
                     </>}
                     {activeTab === 'drafts' && (
                         <div className="w-full max-w-6xl wizard-layout flex flex-col md:flex-row overflow-hidden flex-grow">
-                            {/* DRAFTS LEFT COLUMN */}
                             <div className="flex-grow flex flex-col relative overflow-hidden">
-                                {/* Toasts */}
-                                <div className="absolute top-8 right-8 z-[100] flex flex-col gap-3 pointer-events-none">
-                                    {toasts.map(toast => (
-                                        <div key={toast.id} className={`${toast.isExiting ? 'toast-exit' : 'toast-enter'} pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-lg shadow-2xl border-l-4 ${toast.type === 'success' ? 'border-[var(--status-success)]' : 'border-[var(--status-critical)]'} bg-[var(--surface-primary)] text-white min-w-[280px] max-w-[350px] border border-[var(--border-moderate)]`}>
-                                            <i className={`fa-solid ${toast.type === 'success' ? 'fa-circle-check text-[var(--status-success)]' : 'fa-triangle-exclamation text-[var(--status-critical)]'} text-xl`}></i>
-                                            <div className="flex flex-col">
-                                                <span className="font-bold text-sm tracking-wide uppercase">{toast.type === 'success' ? 'Success' : 'Notice'}</span>
-                                                <span className="text-xs text-[var(--text-secondary)] mt-0.5">{toast.message}</span>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
+                                <ToastContainer toasts={toasts} />
 
                                 <div className="flex-grow p-8 flex flex-col overflow-y-auto custom-scrollbar relative">
                                     <div className="mb-6 border-b border-[var(--border-moderate)] pb-4 shrink-0">
@@ -1082,7 +1071,6 @@
                                         <p className="text-[var(--text-secondary)] mt-1 text-sm">Filter, preview, and send emails from your Gmail Drafts.</p>
                                     </div>
 
-                                    {/* DATE FILTER BAR */}
                                     <div className="app-card flex flex-wrap items-center gap-3 mb-6 shrink-0">
                                         <span className="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Created</span>
                                         <input
@@ -1109,7 +1097,6 @@
                                         </button>
                                     </div>
 
-                                    {/* DRAFT LIST */}
                                     {drafts.length === 0 && !isFetchingDrafts && (
                                         <div className="app-card text-center text-[var(--text-secondary)] text-sm py-8">
                                             <i className="fa-solid fa-inbox text-2xl mb-3 block text-[var(--text-disabled)]"></i>
@@ -1119,7 +1106,6 @@
 
                                     {drafts.length > 0 && (
                                         <div className="flex flex-col gap-2 shrink-0">
-                                            {/* SELECT-ALL ROW */}
                                             <div className="flex items-center gap-3 px-1 mb-2">
                                                 <input
                                                     type="checkbox"
@@ -1141,7 +1127,6 @@
                                                 </button>
                                             </div>
 
-                                            {/* DRAFT ROWS */}
                                             {drafts.map(draft => {
                                                 const isExpanded = expandedDraftId === draft.id;
                                                 const isSelected = selectedDraftIds.has(draft.id);
@@ -1150,7 +1135,6 @@
                                                         key={draft.id}
                                                         className={`app-card p-0 overflow-hidden transition-all ${isSelected ? 'border-[var(--brand-primary)]/30' : 'opacity-60'}`}
                                                     >
-                                                        {/* ROW HEADER */}
                                                         <div className="flex items-center gap-3 p-4">
                                                             <input
                                                                 type="checkbox"
@@ -1180,7 +1164,6 @@
                                                             </button>
                                                         </div>
 
-                                                        {/* INLINE PREVIEW */}
                                                         {isExpanded && (
                                                             <div className="mx-4 mb-4 rounded overflow-hidden border border-[var(--border-moderate)]">
                                                                 <div className="bg-[var(--surface-primary)] px-3 py-1.5 text-xs text-[var(--text-secondary)] flex items-center gap-2">
@@ -1208,7 +1191,6 @@
                                     )}
                                 </div>
                             </div>
-                            {/* DELIVERY REPORT SIDEBAR */}
                             {draftSendResults && (
                                 <div className="w-full md:w-80 bg-black/20 border-l border-[var(--border-moderate)] p-6 flex flex-col shadow-inner shrink-0">
                                     <h3 className="text-sm font-bold text-[var(--text-secondary)] uppercase tracking-[0.05em] flex items-center gap-2 m-0 mb-6">
