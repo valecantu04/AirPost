@@ -1100,14 +1100,15 @@
                                         </button>
                                     </div>
 
-                                    <p className="text-xs text-[var(--text-disabled)] mt-1">
-                                        Showing drafts created within the selected date range. Drafts outside this window are not listed.
+                                    <p className="text-xs text-[var(--text-disabled)] flex items-center gap-1.5 -mt-3 mb-4 shrink-0">
+                                        <i className="fa-solid fa-circle-info"></i>
+                                        Filter is based on draft creation date. Results for reply drafts may vary.
                                     </p>
 
                                     {draftsTruncated && (
-                                        <p className="text-xs text-amber-400 mt-1">
-                                            <i className="fa-solid fa-triangle-exclamation mr-1"></i>
-                                            Only the first 50 drafts are shown. Narrow the date range to see all results.
+                                        <p className="text-xs text-[var(--text-disabled)] flex items-center gap-1.5 mb-4 shrink-0">
+                                            <i className="fa-solid fa-triangle-exclamation text-amber-400"></i>
+                                            Showing first 50 drafts — narrow your date range to see all.
                                         </p>
                                     )}
 
