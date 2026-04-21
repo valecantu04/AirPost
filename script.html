@@ -653,14 +653,32 @@
                     isDanger={modal.isDanger}
                 />
                 {/* HEADER */}
-                <header className="border-b border-[var(--border-moderate)] py-3 px-6 mb-4 flex justify-between items-center bg-[var(--surface-primary)]/40 backdrop-blur-md sticky top-0 z-50 shrink-0">
-                    <div className="flex flex-col">
+                <header className="border-b border-[var(--border-moderate)] px-6 mb-4 flex items-stretch bg-[var(--surface-primary)]/40 backdrop-blur-md sticky top-0 z-50 shrink-0">
+                    <div className="flex flex-col justify-center py-3 mr-8">
                         <h1 className="font-bold text-2xl tracking-tight text-white m-0 flex items-center gap-2">
                             <i className="fa-solid fa-paper-plane text-[var(--brand-primary)]"></i> AirPost
                         </h1>
                         <p className="text-sm text-[var(--text-secondary)] m-0 mt-1">Enterprise bulk email merging</p>
                     </div>
-                    <div className="flex items-center gap-6">
+                    <div className="flex items-center gap-1 flex-1">
+                        {[
+                            { id: 'campaign', icon: 'fa-paper-plane', label: 'Campaign' },
+                            { id: 'drafts', icon: 'fa-file-lines', label: 'Drafts' },
+                        ].map(tab => (
+                            <button
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id)}
+                                className={`flex items-center gap-2 px-4 h-full text-sm font-semibold border-b-2 -mb-px transition-all ${
+                                    activeTab === tab.id
+                                        ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]'
+                                        : 'border-transparent text-[var(--text-secondary)] hover:text-white'
+                                }`}
+                            >
+                                <i className={`fa-solid ${tab.icon}`}></i> {tab.label}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="flex items-center gap-6 py-3">
                         <div className="flex items-center gap-2 text-[var(--text-secondary)] text-sm">
                             <i className="fa-solid fa-envelope-circle-check text-[var(--brand-primary)]"></i>
                             <div className="text-center leading-tight">
@@ -692,26 +710,6 @@
                     </div>
                 </header>
 
-                <nav className="border-b border-[var(--border-moderate)] bg-[var(--surface-primary)]/30 shrink-0">
-                    <div className="flex gap-1 px-6">
-                        {[
-                            { id: 'campaign', icon: 'fa-paper-plane', label: 'Campaign' },
-                            { id: 'drafts', icon: 'fa-file-lines', label: 'Drafts' },
-                        ].map(tab => (
-                            <button
-                                key={tab.id}
-                                onClick={() => setActiveTab(tab.id)}
-                                className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all ${
-                                    activeTab === tab.id
-                                        ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]'
-                                        : 'border-transparent text-[var(--text-secondary)] hover:text-white'
-                                }`}
-                            >
-                                <i className={`fa-solid ${tab.icon}`}></i> {tab.label}
-                            </button>
-                        ))}
-                    </div>
-                </nav>
 
                 <main className="flex-grow flex flex-col items-center p-4 min-h-0">
 
