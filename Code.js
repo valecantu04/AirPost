@@ -842,18 +842,23 @@ function findMimePart(part, mimeType) {
   return null;
 }
 
+function decodeBase64Part(data) {
+  const clean = data.replace(/\s/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  return Utilities.newBlob(Utilities.base64DecodeWebSafe(clean)).getDataAsString();
+}
+
 function getDraftContent(draftId) {
   try {
     const draft = Gmail.Users.Drafts.get('me', draftId, { format: 'full' });
     const payload = draft.message.payload;
     const htmlData = findMimePart(payload, 'text/html');
     if (htmlData) {
-      return Utilities.newBlob(Utilities.base64DecodeWebSafe(htmlData)).getDataAsString();
+      return decodeBase64Part(htmlData);
     }
 
     const plainData = findMimePart(payload, 'text/plain');
     if (plainData) {
-      const text = Utilities.newBlob(Utilities.base64DecodeWebSafe(plainData)).getDataAsString();
+      const text = decodeBase64Part(plainData);
       return '<pre style="font-family:inherit;white-space:pre-wrap;word-break:break-word;padding:12px">' + text + '</pre>';
     }
 
