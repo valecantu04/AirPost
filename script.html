@@ -1,5 +1,5 @@
 <script type="text/babel">
-    const { useState, useEffect, useMemo, useCallback } = React;
+    const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
     // --- UTILITY: Wrap google.script.run in a Promise ---
     const runGas = (functionName, ...args) => {
@@ -395,6 +395,15 @@
                 fetchPreview(0);
             }
         }, [step]);
+
+        // 5. Auto-fetch drafts on first Drafts tab visit
+        const draftsFetchInitiated = useRef(false);
+        useEffect(() => {
+            if (activeTab === 'drafts' && !draftsFetchInitiated.current) {
+                draftsFetchInitiated.current = true;
+                fetchDrafts();
+            }
+        }, [activeTab]);
 
         const handleValidateSheet = async () => {
             if (!sheetUrl || !selectedTab) return addToast('URL and Tab required.', 'error');
