@@ -633,6 +633,11 @@
                     sentIds.forEach(id => delete next[id]);
                     return next;
                 });
+                setDraftContentErrors(prev => {
+                    const next = { ...prev };
+                    sentIds.forEach(id => delete next[id]);
+                    return next;
+                });
 
                 const sentCount = sentIds.size;
                 const failedCount = results.length - sentCount;
