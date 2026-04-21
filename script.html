@@ -577,7 +577,8 @@
         };
 
         const loadDraftContent = async (draftId) => {
-            if (draftContentCache[draftId]) return;
+            if (Object.prototype.hasOwnProperty.call(draftContentCache, draftId)) return;
+            setDraftContentErrors(prev => { const next = { ...prev }; delete next[draftId]; return next; });
             try {
                 const html = await runGas('getDraftContent', draftId);
                 setDraftContentCache(prev => ({ ...prev, [draftId]: html }));
@@ -598,8 +599,6 @@
                 return;
             }
             setExpandedDraftId(draftId);
-            if (draftContentCache[draftId]) return;
-            setDraftContentErrors(prev => { const next = { ...prev }; delete next[draftId]; return next; });
             await loadDraftContent(draftId);
         };
 
@@ -1224,10 +1223,7 @@
                                                                         </p>
                                                                         {!draftContentErrors[draft.id].notFound && (
                                                                             <button
-                                                                                onClick={() => {
-                                                                                    setDraftContentErrors(prev => { const next = { ...prev }; delete next[draft.id]; return next; });
-                                                                                    loadDraftContent(draft.id);
-                                                                                }}
+                                                                                onClick={() => loadDraftContent(draft.id)}
                                                                                 className="btn btn-secondary"
                                                                                 style={{ fontSize: '0.75rem', padding: '4px 12px' }}
                                                                             >
