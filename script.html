@@ -193,6 +193,7 @@
         const [selectedDraftIds, setSelectedDraftIds] = useState(() => new Set());
         const [isSendingDrafts, setIsSendingDrafts] = useState(false);
         const [draftSendResults, setDraftSendResults] = useState(null);
+        const [draftsTruncated, setDraftsTruncated] = useState(false);
 
         // --- STEPPER NAVIGATION ---
         const handleStepperClick = (targetStep) => {
@@ -520,9 +521,11 @@
             setIsFetchingDrafts(true);
             setDraftSendResults(null);
             setExpandedDraftId(null);
+            setDraftsTruncated(false);
             try {
-                const results = await runGas('getDrafts', draftStartDate, draftEndDate);
+                const { drafts: results, truncated } = await runGas('getDrafts', draftStartDate, draftEndDate);
                 setDrafts(results);
+                setDraftsTruncated(truncated);
                 setDraftContentCache({});
                 setSelectedDraftIds(new Set(results.map(d => d.id)));
             } catch (err) {
@@ -1096,6 +1099,17 @@
                                                 : <><i className="fa-solid fa-filter"></i> Filter</>}
                                         </button>
                                     </div>
+
+                                    <p className="text-xs text-[var(--text-disabled)] mt-1">
+                                        Showing drafts created within the selected date range. Drafts outside this window are not listed.
+                                    </p>
+
+                                    {draftsTruncated && (
+                                        <p className="text-xs text-amber-400 mt-1">
+                                            <i className="fa-solid fa-triangle-exclamation mr-1"></i>
+                                            Only the first 50 drafts are shown. Narrow the date range to see all results.
+                                        </p>
+                                    )}
 
                                     {drafts.length === 0 && !isFetchingDrafts && (
                                         <div className="app-card text-center text-[var(--text-secondary)] text-sm py-8">
