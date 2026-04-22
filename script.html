@@ -23,6 +23,86 @@
         { id: 'preview', label: 'Preview & Send' },
     ];
 
+    const GUIDE_SECTIONS = [
+        {
+            id: 'campaign',
+            title: 'Campaign',
+            group: 'features',
+            intro: 'Send personalized emails to a list of recipients using a Google Doc template and a Google Sheets audience. The wizard guides you through three steps.',
+            flows: [
+                [{ label: 'Setup' }, { label: 'Audience' }, { label: 'Preview & Send' }],
+            ],
+            steps: [
+                { text: 'Pick a <strong>sender alias</strong> and a Google Doc template from your configured template folder.' },
+                { text: 'Paste your <strong>Google Sheet URL</strong> and select the audience tab to use.' },
+                { text: 'Preview emails using the <strong>← →</strong> arrow keys, set a subject line, then confirm and send.' },
+            ],
+            callouts: [
+                { variant: 'warning', text: 'Rows with a non-empty <strong>Timestamp</strong> column are skipped — re-running a campaign after a partial failure is safe.' },
+            ],
+        },
+        {
+            id: 'placeholders',
+            title: 'Template Placeholders',
+            group: 'features',
+            intro: 'Use <code>{{ColumnHeader}}</code> in your Google Doc template body or subject line to personalize each email with data from your audience sheet.',
+            steps: [
+                { text: 'Column headers in your sheet become placeholder names. <code>{{FirstName}}</code> inserts the value from the <strong>FirstName</strong> column for each row.' },
+                { text: 'Placeholders work in both the <strong>Doc body</strong> and the <strong>subject line</strong> field in the app.' },
+            ],
+            callouts: [
+                { variant: 'warning', text: 'Six column names are reserved and cannot be used as placeholder names: <code>Email</code>, <code>Name</code>, <code>CC</code>, <code>Attachments</code>, <code>Timestamp</code>, <code>Template</code>.' },
+                { variant: 'info', text: '<code>{{Name}}</code> uses only the first word of the Name field, capitalized. "john smith" → "John".' },
+                { variant: 'tip', text: 'Inline images pasted directly into the Doc template are automatically converted to CID email attachments — no extra steps needed.' },
+            ],
+        },
+        {
+            id: 'audience',
+            title: 'Audience Sheet',
+            group: 'features',
+            intro: 'The audience sheet is a Google Sheet with one row per recipient. AirPost reads from it to personalize and send each email.',
+            steps: [
+                { text: 'Use <strong>Setup → Generate Audience Sheet</strong> to create a starter sheet pre-populated with all placeholder columns from your template.' },
+                { text: 'Fill in the <code>Email</code> column and any placeholder columns. <code>Name</code>, <code>CC</code>, and <code>Attachments</code> are optional.' },
+            ],
+            callouts: [
+                { variant: 'info', text: '<strong>CC</strong> accepts a single email address per row. <strong>Attachments</strong> accepts comma- or semicolon-separated Drive file IDs or URLs.' },
+                { variant: 'warning', text: '<strong>Timestamp</strong> and <strong>Template</strong> columns are written automatically by AirPost after each successful send. Never edit these manually.' },
+            ],
+        },
+        {
+            id: 'drafts',
+            title: 'Drafts',
+            group: 'features',
+            intro: 'The Drafts tab lets you find Gmail drafts by date range, preview them, and send them in bulk — without leaving AirPost.',
+            flows: [
+                [{ label: 'Filter by date' }, { label: 'Select drafts' }, { label: 'Send' }],
+            ],
+            steps: [
+                { text: 'Set a <strong>start and end date</strong> and click <strong>Filter</strong> to load matching Gmail drafts.' },
+                { text: 'Click any draft row to expand its <strong>rendered HTML preview</strong>.' },
+                { text: 'Check drafts individually or use <strong>Select All</strong>, then click <strong>Send Drafts</strong> to send the batch.' },
+            ],
+            callouts: [
+                { variant: 'info', text: 'The date filter uses each draft\'s <strong>creation date</strong>. Results for reply drafts may vary since replies inherit the thread timestamp.' },
+                { variant: 'tip', text: 'You can change the date filter and re-fetch at any time — sent results in the sidebar remain visible until you navigate away.' },
+            ],
+        },
+        {
+            id: 'history',
+            title: 'Send History',
+            group: 'features',
+            intro: 'Every send — campaign or draft batch — is automatically logged to a shared History Sheet for your team.',
+            callouts: [
+                { variant: 'info', text: 'Each log row records: timestamp, sender email, send type (<strong>CAMPAIGN</strong> or <strong>DRAFT</strong>), email subjects, sent count, skipped count, and failed count.' },
+                { variant: 'tip', text: 'The History Sheet is shared across all AirPost users on your domain. Anyone with access can see all team sends.' },
+            ],
+        },
+    ];
+
+    const GUIDE_GROUPS = ['features'];
+    const GUIDE_GROUP_LABELS = { features: 'Features' };
+
     const Stepper = ({ steps, currentStep, onStepClick }) => {
         // Mathematically calculate progress width based on dynamic step array
         const totalSteps = steps.length;
@@ -139,6 +219,91 @@
         </div>
     );
 
+    const HowItWorksModal = ({ onClose }) => {
+        const [activeId, setActiveId] = useState(GUIDE_SECTIONS[0].id);
+        const sectionRefs = useRef({});
+
+        useEffect(() => {
+            const handler = (e) => { if (e.key === 'Escape') onClose(); };
+            document.addEventListener('keydown', handler);
+            return () => document.removeEventListener('keydown', handler);
+        }, []);
+
+        const scrollTo = (id) => {
+            setActiveId(id);
+            const el = sectionRefs.current[id];
+            if (el) el.scrollIntoView({ behavior: 'smooth' });
+        };
+
+        return (
+            <div className="guide-overlay" onClick={onClose}>
+                <div className="guide-panel" onClick={e => e.stopPropagation()}>
+                    <div className="guide-panel-header">
+                        <span className="guide-panel-title">
+                            <i className="fa-solid fa-book-open"></i> How It Works
+                        </span>
+                        <button className="guide-close-btn" onClick={onClose}>
+                            <i className="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+                    <div className="guide-body">
+                        <nav className="guide-sidebar custom-scrollbar">
+                            {GUIDE_GROUPS.map(group => (
+                                <div key={group}>
+                                    <div className="guide-sidebar-group">{GUIDE_GROUP_LABELS[group]}</div>
+                                    {GUIDE_SECTIONS.filter(s => s.group === group).map(s => (
+                                        <button
+                                            key={s.id}
+                                            className={`guide-sidebar-item${activeId === s.id ? ' guide-sidebar-item--active' : ''}`}
+                                            onClick={() => scrollTo(s.id)}
+                                        >
+                                            {s.title}
+                                        </button>
+                                    ))}
+                                </div>
+                            ))}
+                        </nav>
+                        <div className="guide-content custom-scrollbar">
+                            {GUIDE_SECTIONS.map((s, i) => (
+                                <div
+                                    key={s.id}
+                                    ref={el => sectionRefs.current[s.id] = el}
+                                >
+                                    {i > 0 && <hr className="guide-divider" />}
+                                    <h2 className="guide-section-title">{s.title}</h2>
+                                    <p className="guide-intro" dangerouslySetInnerHTML={{ __html: s.intro }} />
+                                    {s.flows && s.flows.map((chain, ci) => (
+                                        <div key={ci} className="guide-flow">
+                                            {chain.map((node, ni) => (
+                                                <React.Fragment key={ni}>
+                                                    {ni > 0 && <span className="guide-flow-arrow">→</span>}
+                                                    <span className="guide-flow-node">{node.label}</span>
+                                                </React.Fragment>
+                                            ))}
+                                        </div>
+                                    ))}
+                                    {s.steps && s.steps.map((step, si) => (
+                                        <div key={si} className="guide-step">
+                                            <span className="guide-step-num">{si + 1}</span>
+                                            <span className="guide-step-text" dangerouslySetInnerHTML={{ __html: step.text }} />
+                                        </div>
+                                    ))}
+                                    {s.callouts && s.callouts.map((c, ci) => (
+                                        <div
+                                            key={ci}
+                                            className={`guide-callout guide-callout--${c.variant}`}
+                                            dangerouslySetInnerHTML={{ __html: c.text }}
+                                        />
+                                    ))}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     const AirPostApp = () => {
         // --- GLOBAL STATE ---
         const [step, setStep] = useState(1);
@@ -146,6 +311,7 @@
         const [isInitializing, setIsInitializing] = useState(true);
         const [globalData, setGlobalData] = useState({ userEmail: '', totalSent: 0 });
         const [toasts, setToasts] = useState([]);
+        const [isGuideOpen, setIsGuideOpen] = useState(false);
         
         // Get logo from window — converted to data URL to avoid inline SVG execution surface
         const logoSvg = window.LOGO_SVG || '';
@@ -728,6 +894,11 @@
                             )}
                         </div>
                         
+                        {/* --- GUIDE TRIGGER --- */}
+                        <button className="guide-trigger-btn" onClick={() => setIsGuideOpen(true)}>
+                            <i className="fa-solid fa-book-open"></i> Guide
+                        </button>
+
                         {/* --- LOGO --- */}
                         <div className="header-logo-group">
                             <div className="header-powered-by-text">
@@ -1308,6 +1479,7 @@
                     )}
                 </main>
 
+                {isGuideOpen && <HowItWorksModal onClose={() => setIsGuideOpen(false)} />}
             </div>
         );
     };

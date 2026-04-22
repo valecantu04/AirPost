@@ -153,3 +153,7 @@ When generating or modifying code in this repository, you MUST adhere to the fol
 - **GPG signing:** All commits require GPG signing. If a commit fails with "No pinentry" in a non-interactive shell, stage the files and ask the user to run the commit from their terminal. Run `gpgconf --kill gpg-agent && gpg-agent --daemon` to fix a stale agent.
 - **Never force push main:** Refuse or warn loudly if asked to force push `main` or `master`.
 - **Feature branch → PR → main:** All work happens on feature branches. Do not commit directly to `main`. When a feature branch is complete, open a PR rather than merging locally.
+
+## How It Works Guide
+
+When adding, modifying, or removing any user-facing feature or workflow, update `GUIDE_SECTIONS` in `script.html` to reflect the change. Add a new entry for new features, update existing steps/callouts for changed behavior, and remove stale content for removed features. The guide must stay in sync with the app.
