@@ -121,6 +121,35 @@ Added a "Sheet Tab" summary item between "Audience Data" and "Subject Line" show
 
 ---
 
+## feature/drafts-view — Drafts Pagination
+
+### ✅ #1 — Cursor-based pagination for `getDrafts` (`Code.js`, `script.html`)
+`getDrafts` was capped at 50 results with a static truncation notice. Implemented "Load More" pagination using Gmail API's `nextPageToken`.
+**Server:** `getDrafts(afterDate, beforeDate, pageToken?)` — optional `pageToken` param passed to `Drafts.list`; return type changed from `{ drafts, truncated }` to `{ drafts, nextPageToken }`.
+**Client:** Replaced `draftsTruncated` state with `draftsNextPageToken` + `isLoadingMoreDrafts`. Added `loadMoreDrafts()` function that appends results and auto-selects new drafts. Truncation warning replaced with a "Load More Drafts" button that hides automatically when all pages are exhausted.
+
+### ✅ #4 — `decodeBase64Part`: "data.replace is not a function" for byte-array MIME parts (`Code.js`)
+For some drafts, Apps Script's Gmail Advanced Service returns `body.data` as a byte array (already decoded) rather than a base64 string. `decodeBase64Part` called `.replace` unconditionally, crashing on non-string input.
+**Fix:** Added `typeof data !== 'string'` guard — byte arrays go directly to `Utilities.newBlob(data).getDataAsString()`, bypassing the base64 decoding path entirely. (`Code.js`)
+
+### ✅ #2 — `getDraftContent`: "Could not decode string" on valid drafts (`Code.js`)
+Some Gmail draft body parts are MIME-folded (base64 split with newlines every 76 chars) or use standard base64 (`+`/`/`) instead of URL-safe base64 (`-`/`_`). `Utilities.base64DecodeWebSafe` rejects both, throwing "Could not decode string."
+**Fix:** Extracted `decodeBase64Part(data)` helper between `findMimePart` and `getDraftContent`. It strips whitespace and normalizes `+`→`-` and `/`→`_` before decoding. Replaced both inline decode calls in `getDraftContent` with the helper. (`Code.js`)
+
+### ✅ #3 — Drafts tab requires manual filter click on every visit (`script.html`)
+Users had to click "Filter" each time they opened the Drafts tab even though the default date range (last 7 days → today) was already set. Added a `useRef` flag (`draftsFetchInitiated`) and a `useEffect([activeTab])` inside `AirPostApp` that calls `fetchDrafts()` exactly once on first Drafts tab entry. Subsequent tab switches preserve the existing results.
+**Fix:** Added `useRef` to the React destructure; added ref + effect after the existing effect block. (`script.html`)
+
+### ✅ #6 — Campaign preview broken by missing `UrlFetchApp` OAuth scope (`appsscript.json`)
+`getTemplateContent` calls `UrlFetchApp.fetch` to export the Google Doc as HTML. When commit `9098ac8` pinned an explicit `oauthScopes` list in the manifest, Apps Script's automatic scope detection was disabled and `https://www.googleapis.com/auth/script.external_request` was not included — causing every preview call to throw "Specified permissions are not sufficient to call UrlFetchApp.fetch."
+**Fix:** Added `"https://www.googleapis.com/auth/script.external_request"` to `oauthScopes` in `appsscript.json`. After `clasp push`, the app will prompt for reauthorization on next visit.
+
+### ✅ #5 — HowItWorksModal: Add static guide modal to AirPost
+No in-app documentation existed; new users had no discoverable reference for how Campaign and Drafts workflows operate.
+**Fix:** Added a `HowItWorksModal` React component with a two-column layout (180px sidebar nav + scrollable content pane) covering 5 sections: Campaign, Template Placeholders, Audience Sheet, Drafts, and Send History. Content is driven by a `GUIDE_SECTIONS` constant at module scope in `script.html`. Guide button (book icon) added to header far right. CSS classes added to `styles.html` using Airfoil tokens; `--status-warning` token added to `:root`. CLAUDE.md rule appended to keep the guide in sync with future feature changes. (`script.html`, `styles.html`, `CLAUDE.md`)
+
+---
+
 ## valecantu04/fix-email
 
 ### ✅ #1 — Document Tabs headings appear in email body (`Code.js`)

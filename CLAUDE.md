@@ -41,6 +41,89 @@ The project is a single-page web app served by Apps Script with a strict client/
 - Base64-encoded inline images in Docs templates are automatically re-encoded as CID attachments to keep emails RFC-compliant.
 
 
+## App Navigation
+
+The app has two top-level tabs rendered in a `<nav>` below the header:
+- **Campaign** — 3-step wizard: Setup → Audience → Preview & Send
+- **Drafts** — Date-range filter, paginated draft list, inline preview, bulk send
+
+Both tabs share the same `wizard-layout` container. The Drafts tab renders a results sidebar only after a send completes.
+
+## Patterns & Utilities
+
+### `runGas` — client/server bridge (`script.html`)
+
+All `google.script.run` calls go through a single promise-returning wrapper:
+
+```js
+const runGas = (functionName, ...args) =>
+    new Promise((resolve, reject) => {
+        google.script.run
+            .withSuccessHandler(resolve)
+            .withFailureHandler(reject)
+            [functionName](...args);
+    });
+```
+
+Any new client-server call **must** use `runGas(...)`. Raw `google.script.run` usage produces uncatchable callbacks that bypass React error handling.
+
+### Server-side error contract (`Code.js`)
+
+Two patterns coexist — match the style of functionally similar existing functions:
+
+| Pattern | Used by |
+|---|---|
+| `return { success: false, message: "..." }` | `sendEmailsWithSheet` |
+| `throw new Error(...)` → caught by `withFailureHandler` | `getDrafts`, `getDraftContent`, `sendDrafts`, `setTemplateFolderId`, `generateAudienceSheet` |
+| Silent return `""` on failure | `getTemplateContent` |
+
+Never introduce a fourth pattern.
+
+### `extractId()` utility (`Code.js`)
+
+Parses a Drive file/folder ID from either a raw ID string or a full URL. Use this anywhere you need to normalize user-pasted input:
+
+```js
+function extractId(link) {
+    let match = link.match(/[-\w]{25,}/);
+    return match ? match[0] : null;
+}
+```
+
+### Audience sheet reserved columns
+
+Six column names are system-managed and must **never** be used as `{{placeholder}}` names in templates:
+
+`Email`, `Name`, `CC`, `Attachments`, `Timestamp`, `Template`
+
+- `CC`: optional single address per row.
+- `Attachments`: optional comma- or semicolon-separated Drive file IDs or URLs.
+- `Timestamp` and `Template` are written by the server after each successful send.
+
+### `formatName()` behavior (`Code.js`)
+
+Takes **only the first word** of the `Name` field and capitalizes it. `"john smith"` → `"John"`. Applied during both campaign sends and email preview generation. Do not change this without explicit user instruction.
+
+### Email preview cache (`Code.js`)
+
+`generateEmailPreview` caches rendered template HTML in `CacheService.getUserCache()` keyed by `'preview_' + templateId` with a 600-second TTL. The Apps Script cache has a **100 KB payload limit** — oversized templates silently fall back to a live fetch. Follow this pattern for any new server-side caching.
+
+### Airfoil design system (`design-spec.md`)
+
+All UI styling follows the **Airfoil** design system. Before writing any new component:
+- Read `design-spec.md` for the complete token and component reference.
+- All colors come from CSS custom properties (`:root` tokens), never hardcoded hex values.
+- Tailwind is structural layout only (`flex`, `grid`, `overflow`). Visual styles come from `.btn`, `.form-input`, `.app-card`, `.wizard-layout`, etc.
+- Icon library: Font Awesome 6 solid (`fa-solid`).
+- Never render untrusted HTML into the React DOM — always use `<iframe srcDoc sandbox="allow-same-origin">`.
+
+### `tasks.md` format
+
+Log all work in `tasks.md` using this structure:
+- `##` section named after the git branch (e.g. `## feature/drafts-view`)
+- `### ✅ #N — FunctionName: Short description` per item
+- Each item: one sentence describing the problem, then `**Fix:**` summarizing the change and which file(s) it touched.
+
 ## Strict Coding Rules for Claude Code
 
 When generating or modifying code in this repository, you MUST adhere to the following constraints:
@@ -62,3 +145,15 @@ When generating or modifying code in this repository, you MUST adhere to the fol
 - **Plan First:** Before modifying `Code.js` or `script.html`, write a brief step-by-step plan. Wait for user approval before writing the code.
 - **Manual Sync:** Do NOT run `clasp push` automatically unless explicitly instructed. Let the user review the code first.
 - **Log Tasks:** Keep a log of pending and completed tasks and our progress in `tasks.md` for each session. If it is not clear, ask the user what branch these tasks should be logged under.
+
+### 4. GitHub & Version Control
+- **Branch naming:** Use prefixed kebab-case — `feature/`, `fix/`, `refactor/`, `chore/`, `docs/`. Example: `feature/drafts-view`, `fix/history-schema`.
+- **Commit messages:** Follow [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `refactor:`, `chore:`, `docs:`. Subject line: imperative mood, ≤72 characters, no period. Example: `fix: clear selected IDs on fetchDrafts error`.
+- **No auto-push:** Do NOT run `git push` unless explicitly instructed — same policy as `clasp push`. Let the user review commits first.
+- **GPG signing:** All commits require GPG signing. If a commit fails with "No pinentry" in a non-interactive shell, stage the files and ask the user to run the commit from their terminal. Run `gpgconf --kill gpg-agent && gpg-agent --daemon` to fix a stale agent.
+- **Never force push main:** Refuse or warn loudly if asked to force push `main` or `master`.
+- **Feature branch → PR → main:** All work happens on feature branches. Do not commit directly to `main`. When a feature branch is complete, open a PR rather than merging locally.
+
+## How It Works Guide
+
+When adding, modifying, or removing any user-facing feature or workflow, update `GUIDE_SECTIONS` in `script.html` to reflect the change. Add a new entry for new features, update existing steps/callouts for changed behavior, and remove stale content for removed features. The guide must stay in sync with the app.

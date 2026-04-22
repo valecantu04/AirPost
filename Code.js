@@ -382,15 +382,18 @@ function sendEmailsWithSheet(sheetId, templateId, subject, tabName, fromEmail, f
   }
 }
 
-function logEmailHistory(userEmail, templateId, emailsSent, emailsSkipped, failedEmails) {
-  // Use HISTORY_SHEET_ID constant
+function getOrCreateHistorySheet() {
   const ss = SpreadsheetApp.openById(HISTORY_SHEET_ID);
-  let historySheet = ss.getSheetByName("Email History");
-
-  if (!historySheet) {
-    historySheet = ss.insertSheet("Email History");
-    historySheet.appendRow(["Timestamp", "User Email", "Template ID", "Template Used", "Emails Sent", "Emails Skipped", "Failed Emails"]);
+  let sheet = ss.getSheetByName('Email History');
+  if (!sheet) {
+    sheet = ss.insertSheet('Email History');
+    sheet.appendRow(['Timestamp', 'User Email', 'Template ID', 'Template Used', 'Emails Sent', 'Emails Skipped', 'Failed Emails']);
   }
+  return sheet;
+}
+
+function logEmailHistory(userEmail, templateId, emailsSent, emailsSkipped, failedEmails) {
+  const historySheet = getOrCreateHistorySheet();
 
   // Get template name once
   // Important: templateId here is a file ID, not a folder ID, so use getFileById
@@ -783,4 +786,134 @@ function getTotalSentEmailCount() {
     Logger.log(`Error retrieving total sent email count: ${error.message}\nStack: ${error.stack}`);
     return 0; // Return 0 on error
   }
+}
+
+function getGmailHeader(headers, name) {
+  return (headers.find(h => h.name.toLowerCase() === name.toLowerCase()) || {}).value || '';
+}
+
+function getDrafts(afterDate, beforeDate, pageToken) {
+  try {
+    const afterQuery = afterDate.replace(/-/g, '/');
+    const d = new Date(beforeDate + 'T12:00:00Z');
+    d.setUTCDate(d.getUTCDate() + 1);
+    const beforeQuery = d.toISOString().slice(0, 10).replace(/-/g, '/');
+    const query = `after:${afterQuery} before:${beforeQuery}`;
+
+    const listParams = { q: query, maxResults: 50 };
+    if (pageToken) listParams.pageToken = pageToken;
+    const listResult = Gmail.Users.Drafts.list('me', listParams);
+    const draftItems = listResult.drafts || [];
+
+    const drafts = draftItems.map(item => {
+      try {
+        const draft = Gmail.Users.Drafts.get('me', item.id, { format: 'metadata' });
+        const headers = draft.message.payload.headers;
+
+        return {
+          id: item.id,
+          subject: getGmailHeader(headers, 'Subject') || '(no subject)',
+          to: getGmailHeader(headers, 'To'),
+          cc: getGmailHeader(headers, 'Cc'),
+          from: getGmailHeader(headers, 'From'),
+          createdAt: new Date(parseInt(draft.message.internalDate)).toISOString()
+        };
+      } catch (e) {
+        Logger.log(`Could not fetch draft metadata for ${item.id}: ${e.message}`);
+        return null;
+      }
+    }).filter(Boolean);
+    return { drafts: drafts, nextPageToken: listResult.nextPageToken || null };
+  } catch (error) {
+    Logger.log(`Error fetching drafts: ${error.message}\nStack: ${error.stack}`);
+    throw new Error('Failed to load drafts. Please try again.');
+  }
+}
+
+function findMimePart(part, mimeType) {
+  if (!part) return null;
+  if (part.mimeType === mimeType && part.body && part.body.data) return part.body.data;
+  if (part.parts) {
+    for (const subPart of part.parts) {
+      const found = findMimePart(subPart, mimeType);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function decodeBase64Part(data) {
+  if (typeof data !== 'string') {
+    return Utilities.newBlob(data).getDataAsString();
+  }
+  const clean = data.replace(/\s/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  return Utilities.newBlob(Utilities.base64DecodeWebSafe(clean)).getDataAsString();
+}
+
+function getDraftContent(draftId) {
+  try {
+    const draft = Gmail.Users.Drafts.get('me', draftId, { format: 'full' });
+    const payload = draft.message.payload;
+    const htmlData = findMimePart(payload, 'text/html');
+    if (htmlData) {
+      return decodeBase64Part(htmlData);
+    }
+
+    const plainData = findMimePart(payload, 'text/plain');
+    if (plainData) {
+      const text = decodeBase64Part(plainData);
+      return '<pre style="font-family:inherit;white-space:pre-wrap;word-break:break-word;padding:12px">' + text + '</pre>';
+    }
+
+    // #94a3b8 = var(--text-disabled); CSS vars don't cascade into sandboxed iframes
+    return '<p style="color:#94a3b8;font-style:italic;padding:12px">(No readable content found)</p>';
+  } catch (error) {
+    Logger.log(`Error fetching draft content for ${draftId}: ${error.message}\nStack: ${error.stack}`);
+    if (error.message && (error.message.includes('404') || error.message.toLowerCase().includes('not found'))) {
+      throw new Error('Draft not found');
+    }
+    throw new Error(`Could not load draft preview: ${error.message}`);
+  }
+}
+
+function sendDrafts(draftIds) {
+  const userEmail = Session.getActiveUser().getEmail();
+  const results = [];
+
+  for (const draftId of draftIds) {
+    let subject = '(unknown)';
+    let to = '';
+
+    try {
+      const meta = Gmail.Users.Drafts.get('me', draftId, { format: 'metadata' });
+      const headers = meta.message.payload.headers;
+      subject = getGmailHeader(headers, 'Subject') || '(no subject)';
+      to = getGmailHeader(headers, 'To');
+    } catch (metaErr) {
+      Logger.log(`Could not fetch metadata for draft ${draftId}: ${metaErr.message}`);
+    }
+
+    try {
+      Gmail.Users.Drafts.send({ id: draftId }, 'me');
+      results.push({ draftId, subject, to, success: true, error: null });
+    } catch (sendErr) {
+      Logger.log(`Failed to send draft ${draftId}: ${sendErr.message}`);
+      results.push({ draftId, subject, to, success: false, error: sendErr.message });
+    }
+  }
+
+  try {
+    logDraftHistory(userEmail, results);
+  } catch (logErr) {
+    Logger.log(`Failed to log draft history: ${logErr.message}`);
+  }
+  return results;
+}
+
+function logDraftHistory(userEmail, results) {
+  const historySheet = getOrCreateHistorySheet();
+  const sent = results.filter(r => r.success);
+  const failed = results.filter(r => !r.success);
+  const templateUsed = sent.length > 0 ? sent.map(r => r.subject).join(', ') : '(none sent)';
+  historySheet.appendRow([new Date(), userEmail, 'DRAFT', templateUsed, sent.length, 0, failed.length]);
 }

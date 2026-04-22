@@ -1,5 +1,5 @@
 <script type="text/babel">
-    const { useState, useEffect, useMemo, useCallback } = React;
+    const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
     // --- UTILITY: Wrap google.script.run in a Promise ---
     const runGas = (functionName, ...args) => {
@@ -11,11 +11,97 @@
         });
     };
 
+    const omitKeys = (obj, keys) => {
+        const next = { ...obj };
+        keys.forEach(k => delete next[k]);
+        return next;
+    };
+
     const WORKFLOW_STEPS = [
         { id: 'setup', label: 'Campaign Setup' },
         { id: 'audience', label: 'Audience' },
         { id: 'preview', label: 'Preview & Send' },
     ];
+
+    const GUIDE_SECTIONS = [
+        {
+            id: 'campaign',
+            title: 'Campaign',
+            group: 'features',
+            intro: 'Send personalized emails to a list of recipients using a Google Doc template and a Google Sheets audience. The wizard guides you through three steps.',
+            flows: [
+                [{ label: 'Setup' }, { label: 'Audience' }, { label: 'Preview & Send' }],
+            ],
+            steps: [
+                { text: 'Pick a <strong>sender alias</strong> and a Google Doc template from your configured template folder.' },
+                { text: 'Paste your <strong>Google Sheet URL</strong> and select the audience tab to use.' },
+                { text: 'Preview emails using the <strong>← →</strong> arrow keys, set a subject line, then confirm and send.' },
+            ],
+            callouts: [
+                { variant: 'warning', text: 'Rows with a non-empty <strong>Timestamp</strong> column are skipped — re-running a campaign after a partial failure is safe.' },
+            ],
+        },
+        {
+            id: 'placeholders',
+            title: 'Template Placeholders',
+            group: 'features',
+            intro: 'Use <code>{{ColumnHeader}}</code> in your Google Doc template body or subject line to personalize each email with data from your audience sheet.',
+            steps: [
+                { text: 'Column headers in your sheet become placeholder names. <code>{{FirstName}}</code> inserts the value from the <strong>FirstName</strong> column for each row.' },
+                { text: 'Placeholders work in both the <strong>Doc body</strong> and the <strong>subject line</strong> field in the app.' },
+            ],
+            callouts: [
+                { variant: 'warning', text: 'Six column names are reserved and cannot be used as placeholder names: <code>Email</code>, <code>Name</code>, <code>CC</code>, <code>Attachments</code>, <code>Timestamp</code>, <code>Template</code>.' },
+                { variant: 'info', text: '<code>{{Name}}</code> uses only the first word of the Name field, capitalized. "john smith" → "John".' },
+                { variant: 'tip', text: 'Inline images pasted directly into the Doc template are automatically converted to CID email attachments — no extra steps needed.' },
+            ],
+        },
+        {
+            id: 'audience',
+            title: 'Audience Sheet',
+            group: 'features',
+            intro: 'The audience sheet is a Google Sheet with one row per recipient. AirPost reads from it to personalize and send each email.',
+            steps: [
+                { text: 'Use <strong>Setup → Generate Audience Sheet</strong> to create a starter sheet pre-populated with all placeholder columns from your template.' },
+                { text: 'Fill in the <code>Email</code> column and any placeholder columns. <code>Name</code>, <code>CC</code>, and <code>Attachments</code> are optional.' },
+            ],
+            callouts: [
+                { variant: 'info', text: '<strong>CC</strong> accepts a single email address per row. <strong>Attachments</strong> accepts comma- or semicolon-separated Drive file IDs or URLs.' },
+                { variant: 'warning', text: '<strong>Timestamp</strong> and <strong>Template</strong> columns are written automatically by AirPost after each successful send. Never edit these manually.' },
+            ],
+        },
+        {
+            id: 'drafts',
+            title: 'Drafts',
+            group: 'features',
+            intro: 'The Drafts tab lets you find Gmail drafts by date range, preview them, and send them in bulk — without leaving AirPost.',
+            flows: [
+                [{ label: 'Filter by date' }, { label: 'Select drafts' }, { label: 'Send' }],
+            ],
+            steps: [
+                { text: 'Set a <strong>start and end date</strong> and click <strong>Filter</strong> to load matching Gmail drafts.' },
+                { text: 'Click any draft row to expand its <strong>rendered HTML preview</strong>.' },
+                { text: 'Check drafts individually or use <strong>Select All</strong>, then click <strong>Send Drafts</strong> to send the batch.' },
+            ],
+            callouts: [
+                { variant: 'info', text: 'The date filter uses each draft\'s <strong>creation date</strong>. Results for reply drafts may vary since replies inherit the thread timestamp.' },
+                { variant: 'tip', text: 'You can change the date filter and re-fetch at any time — sent results in the sidebar remain visible until you navigate away.' },
+            ],
+        },
+        {
+            id: 'history',
+            title: 'Send History',
+            group: 'features',
+            intro: 'Every send — campaign or draft batch — is automatically logged to a shared History Sheet for your team.',
+            callouts: [
+                { variant: 'info', text: 'Each log row records: timestamp, sender email, send type (<strong>CAMPAIGN</strong> or <strong>DRAFT</strong>), email subjects, sent count, skipped count, and failed count.' },
+                { variant: 'tip', text: 'The History Sheet is shared across all AirPost users on your domain. Anyone with access can see all team sends.' },
+            ],
+        },
+    ];
+
+    const GUIDE_GROUPS = ['features'];
+    const GUIDE_GROUP_LABELS = { features: 'Features' };
 
     const Stepper = ({ steps, currentStep, onStepClick }) => {
         // Mathematically calculate progress width based on dynamic step array
@@ -119,12 +205,113 @@
         );
     };
 
+    const ToastContainer = ({ toasts }) => (
+        <div className="absolute top-8 right-8 z-[100] flex flex-col gap-3 pointer-events-none">
+            {toasts.map(toast => (
+                <div key={toast.id} className={`${toast.isExiting ? 'toast-exit' : 'toast-enter'} pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-lg shadow-2xl border-l-4 ${toast.type === 'success' ? 'border-[var(--status-success)]' : 'border-[var(--status-critical)]'} bg-[var(--surface-primary)] text-white min-w-[280px] max-w-[350px] border border-[var(--border-moderate)]`}>
+                    <i className={`fa-solid ${toast.type === 'success' ? 'fa-circle-check text-[var(--status-success)]' : 'fa-triangle-exclamation text-[var(--status-critical)]'} text-xl`}></i>
+                    <div className="flex flex-col">
+                        <span className="font-bold text-sm tracking-wide uppercase">{toast.type === 'success' ? 'Success' : 'Notice'}</span>
+                        <span className="text-xs text-[var(--text-secondary)] mt-0.5">{toast.message}</span>
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+
+    const HowItWorksModal = ({ onClose }) => {
+        const [activeId, setActiveId] = useState(GUIDE_SECTIONS[0].id);
+        const sectionRefs = useRef({});
+
+        useEffect(() => {
+            const handler = (e) => { if (e.key === 'Escape') onClose(); };
+            document.addEventListener('keydown', handler);
+            return () => document.removeEventListener('keydown', handler);
+        }, []);
+
+        const scrollTo = (id) => {
+            setActiveId(id);
+            const el = sectionRefs.current[id];
+            if (el) el.scrollIntoView({ behavior: 'smooth' });
+        };
+
+        return (
+            <div className="guide-overlay" onClick={onClose}>
+                <div className="guide-panel" onClick={e => e.stopPropagation()}>
+                    <div className="guide-panel-header">
+                        <span className="guide-panel-title">
+                            <i className="fa-solid fa-book-open"></i> How It Works
+                        </span>
+                        <button className="guide-close-btn" onClick={onClose}>
+                            <i className="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+                    <div className="guide-body">
+                        <nav className="guide-sidebar custom-scrollbar">
+                            {GUIDE_GROUPS.map(group => (
+                                <div key={group}>
+                                    <div className="guide-sidebar-group">{GUIDE_GROUP_LABELS[group]}</div>
+                                    {GUIDE_SECTIONS.filter(s => s.group === group).map(s => (
+                                        <button
+                                            key={s.id}
+                                            className={`guide-sidebar-item${activeId === s.id ? ' guide-sidebar-item--active' : ''}`}
+                                            onClick={() => scrollTo(s.id)}
+                                        >
+                                            {s.title}
+                                        </button>
+                                    ))}
+                                </div>
+                            ))}
+                        </nav>
+                        <div className="guide-content custom-scrollbar">
+                            {GUIDE_SECTIONS.map((s, i) => (
+                                <div
+                                    key={s.id}
+                                    ref={el => sectionRefs.current[s.id] = el}
+                                >
+                                    {i > 0 && <hr className="guide-divider" />}
+                                    <h2 className="guide-section-title">{s.title}</h2>
+                                    <p className="guide-intro" dangerouslySetInnerHTML={{ __html: s.intro }} />
+                                    {s.flows && s.flows.map((chain, ci) => (
+                                        <div key={ci} className="guide-flow">
+                                            {chain.map((node, ni) => (
+                                                <React.Fragment key={ni}>
+                                                    {ni > 0 && <span className="guide-flow-arrow">→</span>}
+                                                    <span className="guide-flow-node">{node.label}</span>
+                                                </React.Fragment>
+                                            ))}
+                                        </div>
+                                    ))}
+                                    {s.steps && s.steps.map((step, si) => (
+                                        <div key={si} className="guide-step">
+                                            <span className="guide-step-num">{si + 1}</span>
+                                            <span className="guide-step-text" dangerouslySetInnerHTML={{ __html: step.text }} />
+                                        </div>
+                                    ))}
+                                    {s.callouts && s.callouts.map((c, ci) => (
+                                        <div
+                                            key={ci}
+                                            className={`guide-callout guide-callout--${c.variant}`}
+                                            dangerouslySetInnerHTML={{ __html: c.text }}
+                                        />
+                                    ))}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     const AirPostApp = () => {
         // --- GLOBAL STATE ---
         const [step, setStep] = useState(1);
+        const [activeTab, setActiveTab] = useState('campaign');
         const [isInitializing, setIsInitializing] = useState(true);
         const [globalData, setGlobalData] = useState({ userEmail: '', totalSent: 0 });
         const [toasts, setToasts] = useState([]);
+        const [isGuideOpen, setIsGuideOpen] = useState(false);
         
         // Get logo from window — converted to data URL to avoid inline SVG execution surface
         const logoSvg = window.LOGO_SVG || '';
@@ -164,6 +351,27 @@
             setModal({ isOpen: true, title, message, onConfirm, isDanger });
         const closeModal = () => setModal(prev => ({ ...prev, isOpen: false }));
         const handleModalConfirm = () => { modal.onConfirm?.(); closeModal(); };
+
+        const [draftStartDate, setDraftStartDate] = useState(() => {
+            const d = new Date();
+            d.setDate(d.getDate() - 7);
+            return d.toISOString().slice(0, 10);
+        });
+        const [draftEndDate, setDraftEndDate] = useState(() => new Date().toISOString().slice(0, 10));
+        const [committedDraftDates, setCommittedDraftDates] = useState(() => ({
+            start: new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10),
+            end: new Date().toISOString().slice(0, 10),
+        }));
+        const [drafts, setDrafts] = useState([]);
+        const [isFetchingDrafts, setIsFetchingDrafts] = useState(false);
+        const [expandedDraftId, setExpandedDraftId] = useState(null);
+        const [draftContentCache, setDraftContentCache] = useState({});
+        const [selectedDraftIds, setSelectedDraftIds] = useState(() => new Set());
+        const [isSendingDrafts, setIsSendingDrafts] = useState(false);
+        const [draftSendResults, setDraftSendResults] = useState(null);
+        const [draftsNextPageToken, setDraftsNextPageToken] = useState(null);
+        const [isLoadingMoreDrafts, setIsLoadingMoreDrafts] = useState(false);
+        const [draftContentErrors, setDraftContentErrors] = useState({});
 
         // --- STEPPER NAVIGATION ---
         const handleStepperClick = (targetStep) => {
@@ -354,6 +562,15 @@
             }
         }, [step]);
 
+        // 5. Auto-fetch drafts on first Drafts tab visit
+        const draftsFetchInitiated = useRef(false);
+        useEffect(() => {
+            if (activeTab === 'drafts' && !draftsFetchInitiated.current) {
+                draftsFetchInitiated.current = true;
+                fetchDrafts();
+            }
+        }, [activeTab]);
+
         const handleValidateSheet = async () => {
             if (!sheetUrl || !selectedTab) return addToast('URL and Tab required.', 'error');
             
@@ -487,6 +704,137 @@
             });
         };
 
+        const fetchDrafts = async () => {
+            setIsFetchingDrafts(true);
+            setDraftSendResults(null);
+            setExpandedDraftId(null);
+            setDraftsNextPageToken(null);
+            setCommittedDraftDates({ start: draftStartDate, end: draftEndDate });
+            try {
+                const { drafts: results, nextPageToken } = await runGas('getDrafts', draftStartDate, draftEndDate);
+                setDrafts(results);
+                setDraftsNextPageToken(nextPageToken);
+                setDraftContentCache({});
+                setDraftContentErrors({});
+                setSelectedDraftIds(new Set(results.map(d => d.id)));
+            } catch (err) {
+                addToast('Failed to load drafts. Please try again.', 'error');
+                setDrafts([]);
+                setSelectedDraftIds(new Set());
+                setDraftContentCache({});
+                setDraftContentErrors({});
+            } finally {
+                setIsFetchingDrafts(false);
+            }
+        };
+
+        const loadMoreDrafts = async () => {
+            setIsLoadingMoreDrafts(true);
+            try {
+                const { drafts: moreResults, nextPageToken } = await runGas('getDrafts', committedDraftDates.start, committedDraftDates.end, draftsNextPageToken);
+                setDrafts(prev => [...prev, ...moreResults]);
+                setDraftsNextPageToken(nextPageToken);
+                setSelectedDraftIds(prev => {
+                    const next = new Set(prev);
+                    moreResults.forEach(d => next.add(d.id));
+                    return next;
+                });
+            } catch (err) {
+                addToast('Failed to load more drafts. Please try again.', 'error');
+            } finally {
+                setIsLoadingMoreDrafts(false);
+            }
+        };
+
+        const toggleDraftSelection = (id) => {
+            setSelectedDraftIds(prev => {
+                const next = new Set(prev);
+                next.has(id) ? next.delete(id) : next.add(id);
+                return next;
+            });
+        };
+
+        const toggleAllDrafts = () => {
+            if (selectedDraftIds.size === drafts.length && drafts.length > 0) {
+                setSelectedDraftIds(new Set());
+            } else {
+                setSelectedDraftIds(new Set(drafts.map(d => d.id)));
+            }
+        };
+
+        const loadDraftContent = async (draftId) => {
+            if (draftId in draftContentCache) return;
+            setDraftContentErrors(prev => { const next = { ...prev }; delete next[draftId]; return next; });
+            try {
+                const html = await runGas('getDraftContent', draftId);
+                setDraftContentCache(prev => ({ ...prev, [draftId]: html }));
+            } catch (err) {
+                const notFound = err.message === 'Draft not found';
+                setDraftContentErrors(prev => ({ ...prev, [draftId]: { message: err.message, notFound } }));
+                if (notFound) {
+                    setDrafts(prev => prev.filter(d => d.id !== draftId));
+                    setSelectedDraftIds(prev => { const s = new Set(prev); s.delete(draftId); return s; });
+                    setExpandedDraftId(null);
+                }
+            }
+        };
+
+        const handleExpandDraft = async (draftId) => {
+            if (expandedDraftId === draftId) {
+                setExpandedDraftId(null);
+                return;
+            }
+            setExpandedDraftId(draftId);
+            await loadDraftContent(draftId);
+        };
+
+        const handleSendDrafts = () => {
+            const count = selectedDraftIds.size;
+            if (count === 0) return;
+            openModal({
+                title: 'Send Drafts',
+                message: `Send ${count} draft${count === 1 ? '' : 's'}? They will be permanently deleted from your Gmail Drafts folder.`,
+                isDanger: true,
+                onConfirm: executeSendDrafts,
+            });
+        };
+
+        const executeSendDrafts = async () => {
+            setIsSendingDrafts(true);
+            try {
+                const ids = Array.from(selectedDraftIds);
+                const results = await runGas('sendDrafts', ids);
+                setDraftSendResults(results);
+
+                const sentIds = new Set(results.filter(r => r.success).map(r => r.draftId));
+                setDrafts(prev => prev.filter(d => !sentIds.has(d.id)));
+                setSelectedDraftIds(prev => {
+                    const next = new Set(prev);
+                    sentIds.forEach(id => next.delete(id));
+                    return next;
+                });
+                setExpandedDraftId(null);
+                const pruned = Array.from(sentIds);
+                setDraftContentCache(prev => omitKeys(prev, pruned));
+                setDraftContentErrors(prev => omitKeys(prev, pruned));
+
+                const sentCount = sentIds.size;
+                const failedCount = results.length - sentCount;
+
+                if (failedCount === 0) {
+                    addToast(`${sentCount} draft${sentCount === 1 ? '' : 's'} sent successfully.`, 'success');
+                } else if (sentCount === 0) {
+                    addToast('Send failed. Your drafts were not deleted.', 'error');
+                } else {
+                    addToast(`${sentCount} sent, ${failedCount} failed.`, 'error');
+                }
+            } catch (err) {
+                addToast('Send failed. Please try again.', 'error');
+            } finally {
+                setIsSendingDrafts(false);
+            }
+        };
+
         const getTemplateName = () => templates.find(t => t.id === selectedTemplate)?.name || 'Pending...';
 
         return (
@@ -500,14 +848,32 @@
                     isDanger={modal.isDanger}
                 />
                 {/* HEADER */}
-                <header className="border-b border-[var(--border-moderate)] py-3 px-6 mb-4 flex justify-between items-center bg-[var(--surface-primary)]/40 backdrop-blur-md sticky top-0 z-50 shrink-0">
-                    <div className="flex flex-col">
+                <header className="border-b border-[var(--border-moderate)] px-6 mb-4 flex items-stretch bg-[var(--surface-primary)]/40 backdrop-blur-md sticky top-0 z-50 shrink-0">
+                    <div className="flex flex-col justify-center py-3 mr-8">
                         <h1 className="font-bold text-2xl tracking-tight text-white m-0 flex items-center gap-2">
                             <i className="fa-solid fa-paper-plane text-[var(--brand-primary)]"></i> AirPost
                         </h1>
                         <p className="text-sm text-[var(--text-secondary)] m-0 mt-1">Enterprise bulk email merging</p>
                     </div>
-                    <div className="flex items-center gap-6">
+                    <nav className="flex items-center gap-1 flex-1">
+                        {[
+                            { id: 'campaign', icon: 'fa-paper-plane', label: 'Campaign' },
+                            { id: 'drafts', icon: 'fa-file-lines', label: 'Drafts' },
+                        ].map(tab => (
+                            <button
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id)}
+                                className={`flex items-center gap-2 px-4 h-full text-sm font-semibold border-b-2 -mb-px transition-all ${
+                                    activeTab === tab.id
+                                        ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]'
+                                        : 'border-transparent text-[var(--text-secondary)] hover:text-white'
+                                }`}
+                            >
+                                <i className={`fa-solid ${tab.icon}`}></i> {tab.label}
+                            </button>
+                        ))}
+                    </nav>
+                    <div className="flex items-center gap-6 py-3">
                         <div className="flex items-center gap-2 text-[var(--text-secondary)] text-sm">
                             <i className="fa-solid fa-envelope-circle-check text-[var(--brand-primary)]"></i>
                             <div className="text-center leading-tight">
@@ -528,6 +894,11 @@
                             )}
                         </div>
                         
+                        {/* --- GUIDE TRIGGER --- */}
+                        <button className="guide-trigger-btn" onClick={() => setIsGuideOpen(true)}>
+                            <i className="fa-solid fa-book-open"></i> Guide
+                        </button>
+
                         {/* --- LOGO --- */}
                         <div className="header-logo-group">
                             <div className="header-powered-by-text">
@@ -540,7 +911,8 @@
                 </header>
 
                 <main className="flex-grow flex flex-col items-center p-4 min-h-0">
-                    
+
+                    {activeTab === 'campaign' && <>
                     {/* STEPPER */}
                     <div className="w-full max-w-6xl px-8 shrink-0">
                         <Stepper 
@@ -557,18 +929,7 @@
                         {/* This handles fixed toast positioning and hides overflow so the toast appears to slide from under the sidebar */}
                         <div className="flex-grow flex flex-col relative overflow-hidden">
                             
-                            {/* TOAST SYSTEM RENDERING */}
-                            <div className="absolute top-8 right-8 z-[100] flex flex-col gap-3 pointer-events-none">
-                                {toasts.map(toast => (
-                                    <div key={toast.id} className={`${toast.isExiting ? 'toast-exit' : 'toast-enter'} pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-lg shadow-2xl border-l-4 ${toast.type === 'success' ? 'border-[var(--status-success)]' : 'border-[var(--status-critical)]'} bg-[var(--surface-primary)] text-white min-w-[280px] max-w-[350px] border border-[var(--border-moderate)]`}>
-                                        <i className={`fa-solid ${toast.type === 'success' ? 'fa-circle-check text-[var(--status-success)]' : 'fa-triangle-exclamation text-[var(--status-critical)]'} text-xl`}></i>
-                                        <div className="flex flex-col">
-                                            <span className="font-bold text-sm tracking-wide uppercase">{toast.type === 'success' ? 'Success' : 'Notice'}</span>
-                                            <span className="text-xs text-[var(--text-secondary)] mt-0.5">{toast.message}</span>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
+                            <ToastContainer toasts={toasts} />
 
                             {/* LEFT COLUMN: Main Forms (Now scrollable inside the wrapper) */}
                             <div className="flex-grow p-8 flex flex-col overflow-y-auto custom-scrollbar relative">
@@ -917,8 +1278,208 @@
                             </div>
                         </div>
                     </div>
+                    </>}
+                    {activeTab === 'drafts' && (
+                        <div className="w-full max-w-6xl wizard-layout flex flex-col md:flex-row overflow-hidden flex-grow">
+                            <div className="flex-grow flex flex-col relative overflow-hidden">
+                                <ToastContainer toasts={toasts} />
+
+                                <div className="flex-grow p-8 flex flex-col overflow-y-auto custom-scrollbar relative">
+                                    <div className="mb-6 border-b border-[var(--border-moderate)] pb-4 shrink-0 flex justify-between items-start gap-4">
+                                        <div>
+                                            <h2 className="text-2xl font-bold flex items-center gap-2">
+                                                <i className="fa-solid fa-file-lines text-[var(--brand-primary)]"></i> Drafts
+                                            </h2>
+                                            <p className="text-[var(--text-secondary)] mt-1 text-sm">Filter, preview, and send emails from your Gmail Drafts.</p>
+                                        </div>
+                                        <div className="flex flex-col items-end shrink-0">
+                                            <div className="flex items-center gap-2 bg-black/20 border border-[var(--border-moderate)] rounded-lg px-3 py-2">
+                                                <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Created</span>
+                                                <input
+                                                    type="date"
+                                                    className="form-input w-auto text-sm py-1"
+                                                    value={draftStartDate}
+                                                    onChange={e => setDraftStartDate(e.target.value)}
+                                                />
+                                                <span className="text-[var(--text-disabled)]">→</span>
+                                                <input
+                                                    type="date"
+                                                    className="form-input w-auto text-sm py-1"
+                                                    value={draftEndDate}
+                                                    onChange={e => setDraftEndDate(e.target.value)}
+                                                />
+                                                <button
+                                                    onClick={fetchDrafts}
+                                                    disabled={isFetchingDrafts || isSendingDrafts}
+                                                    className="btn btn-primary !py-1"
+                                                >
+                                                    {isFetchingDrafts
+                                                        ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Loading...</>
+                                                        : <><i className="fa-solid fa-filter"></i> Filter</>}
+                                                </button>
+                                            </div>
+                                            <p className="text-xs text-[var(--text-disabled)] flex items-center gap-1.5 mt-2">
+                                                <i className="fa-solid fa-circle-info"></i>
+                                                Filter is based on draft creation date. Results for reply drafts may vary.
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {drafts.length === 0 && !isFetchingDrafts && (
+                                        <div className="app-card text-center text-[var(--text-secondary)] text-sm py-8">
+                                            <i className="fa-solid fa-inbox text-2xl mb-3 block text-[var(--text-disabled)]"></i>
+                                            No drafts found in this date range. Try widening the filter.
+                                        </div>
+                                    )}
+
+                                    {drafts.length > 0 && (
+                                        <div className="flex flex-col gap-2 shrink-0">
+                                            <div className="flex items-center gap-3 px-1 mb-2">
+                                                <input
+                                                    type="checkbox"
+                                                    className="accent-[var(--brand-primary)] w-4 h-4 cursor-pointer"
+                                                    checked={selectedDraftIds.size === drafts.length && drafts.length > 0}
+                                                    onChange={toggleAllDrafts}
+                                                />
+                                                <span className="text-sm text-[var(--text-secondary)]">
+                                                    {selectedDraftIds.size} of {drafts.length} draft{drafts.length === 1 ? '' : 's'} selected
+                                                </span>
+                                                <button
+                                                    onClick={handleSendDrafts}
+                                                    disabled={selectedDraftIds.size === 0 || isSendingDrafts}
+                                                    className="btn btn-primary ml-auto"
+                                                >
+                                                    {isSendingDrafts
+                                                        ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Sending...</>
+                                                        : <><i className="fa-solid fa-paper-plane"></i> Send {selectedDraftIds.size} Draft{selectedDraftIds.size === 1 ? '' : 's'}</>}
+                                                </button>
+                                            </div>
+
+                                            {drafts.map(draft => {
+                                                const isExpanded = expandedDraftId === draft.id;
+                                                const isSelected = selectedDraftIds.has(draft.id);
+                                                return (
+                                                    <div
+                                                        key={draft.id}
+                                                        className={`app-card p-0 overflow-hidden transition-all ${isSelected ? 'border-[var(--brand-primary)]/30' : 'opacity-60'}`}
+                                                    >
+                                                        <div className="flex items-center gap-3 p-4">
+                                                            <input
+                                                                type="checkbox"
+                                                                className="accent-[var(--brand-primary)] w-4 h-4 cursor-pointer shrink-0"
+                                                                checked={isSelected}
+                                                                onChange={() => toggleDraftSelection(draft.id)}
+                                                                onClick={e => e.stopPropagation()}
+                                                            />
+                                                            <div
+                                                                className="flex-grow min-w-0 cursor-pointer"
+                                                                onClick={() => handleExpandDraft(draft.id)}
+                                                            >
+                                                                <div className="text-sm font-semibold text-white truncate">{draft.subject}</div>
+                                                                <div className="text-xs text-[var(--text-secondary)] mt-0.5 truncate">
+                                                                    To: {draft.to}
+                                                                    {draft.cc ? ` · CC: ${draft.cc}` : ''}
+                                                                    {' · '}From: {draft.from}
+                                                                    {' · '}{new Date(draft.createdAt).toLocaleDateString()}
+                                                                </div>
+                                                            </div>
+                                                            <button
+                                                                onClick={() => handleExpandDraft(draft.id)}
+                                                                className="text-[var(--text-disabled)] hover:text-white transition-colors shrink-0 px-1"
+                                                                aria-label={isExpanded ? 'Collapse' : 'Expand'}
+                                                            >
+                                                                <i className={`fa-solid fa-chevron-${isExpanded ? 'up' : 'down'} text-sm`}></i>
+                                                            </button>
+                                                        </div>
+
+                                                        {isExpanded && (
+                                                            <div className="mx-4 mb-4 rounded overflow-hidden border border-[var(--border-moderate)]">
+                                                                <div className="bg-[var(--surface-primary)] px-3 py-1.5 text-xs text-[var(--text-secondary)] flex items-center gap-2">
+                                                                    <i className="fa-solid fa-envelope text-[var(--brand-primary)]"></i> Email Preview
+                                                                </div>
+                                                                {draftContentCache[draft.id] ? (
+                                                                    <iframe
+                                                                        srcDoc={draftContentCache[draft.id]}
+                                                                        sandbox="allow-same-origin"
+                                                                        className="preview-pane-iframe"
+                                                                        style={{ height: '300px', width: '100%', border: 'none', background: '#fff' }}
+                                                                        title={`Preview: ${draft.subject}`}
+                                                                    />
+                                                                ) : draftContentErrors[draft.id] ? (
+                                                                    <div className="bg-white flex flex-col items-center justify-center gap-2 py-6">
+                                                                        <p style={{ color: 'var(--status-critical)', fontStyle: 'italic', fontSize: '0.875rem', textAlign: 'center', padding: '0 12px' }}>
+                                                                            {draftContentErrors[draft.id].message}
+                                                                        </p>
+                                                                        {!draftContentErrors[draft.id].notFound && (
+                                                                            <button
+                                                                                onClick={() => loadDraftContent(draft.id)}
+                                                                                className="btn btn-secondary"
+                                                                                style={{ fontSize: '0.75rem', padding: '4px 12px' }}
+                                                                            >
+                                                                                <i className="fa-solid fa-rotate-right"></i> Retry
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="bg-white h-32 flex items-center justify-center text-gray-400">
+                                                                        <i className="fa-solid fa-circle-notch fa-spin text-[var(--brand-primary)] text-xl"></i>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+
+                                            {draftsNextPageToken && (
+                                                <div className="flex justify-center shrink-0">
+                                                    <button
+                                                        onClick={loadMoreDrafts}
+                                                        disabled={isLoadingMoreDrafts || isSendingDrafts}
+                                                        className="btn btn-secondary"
+                                                    >
+                                                        {isLoadingMoreDrafts
+                                                            ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Loading...</>
+                                                            : <><i className="fa-solid fa-chevron-down"></i> Load More Drafts</>}
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            {draftSendResults && (
+                                <div className="w-full md:w-80 bg-black/20 border-l border-[var(--border-moderate)] p-6 flex flex-col shadow-inner shrink-0">
+                                    <h3 className="text-sm font-bold text-[var(--text-secondary)] uppercase tracking-[0.05em] flex items-center gap-2 m-0 mb-6">
+                                        <i className="fa-solid fa-list-check"></i> Send Results
+                                    </h3>
+                                    <div className="flex flex-col gap-2 flex-grow overflow-y-auto custom-scrollbar">
+                                        {draftSendResults.map(r => (
+                                            <div key={r.draftId} className="text-sm flex items-start gap-2">
+                                                <i className={`fa-solid ${r.success ? 'fa-circle-check text-[var(--status-success)]' : 'fa-circle-xmark text-[var(--status-critical)]'} mt-0.5 shrink-0`}></i>
+                                                <div className="min-w-0">
+                                                    <div className={`font-semibold truncate ${r.success ? 'text-[var(--status-success)]' : 'text-[var(--status-critical)]'}`}>{r.subject}</div>
+                                                    {!r.success && r.error && (
+                                                        <div className="text-xs text-[var(--text-disabled)] mt-0.5">{r.error}</div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="mt-auto pt-4 border-t border-[var(--border-moderate)] text-xs text-[var(--text-disabled)]">
+                                        {draftSendResults.filter(r => r.success).length} sent
+                                        {' · '}
+                                        {draftSendResults.filter(r => !r.success).length} failed
+                                        {' · '}
+                                        {new Date().toLocaleDateString()}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </main>
 
+                {isGuideOpen && <HowItWorksModal onClose={() => setIsGuideOpen(false)} />}
             </div>
         );
     };
