@@ -541,8 +541,11 @@ function getTemplateContent(templateId) {
       // Fail-open: if the Docs API call fails, proceed with unmodified HTML.
     }
 
+    // Track resolved list-style-type across sequential tag processing
+    let currentListStyleType = 'disc';
+
     // 5. Process EVERY tag to handle classes AND restore native email formatting
-    let inlinedHtml = bodyHtml.replace(/<([a-zA-Z0-9]+)([^>]*)>/gi, function(fullMatch, tag, attributes) { 
+    let inlinedHtml = bodyHtml.replace(/<([a-zA-Z0-9]+)([^>]*)>/gi, function(fullMatch, tag, attributes) {
       const lowerTag = tag.toLowerCase();
       
       let baseResets = "";
@@ -598,12 +601,16 @@ function getTemplateContent(templateId) {
       }
 
       // --- LAYER 3: Forced Overrides (Fixing Google Docs Quirks) ---
-      if (lowerTag === 'ul') {
-        forcedOverrides = "margin: 0 !important; padding: 0 0 0 40px !important; list-style-type: disc !important; ";
-      } else if (lowerTag === 'ol') {
-        forcedOverrides = "margin: 0 !important; padding: 0 0 0 40px !important; list-style-type: decimal !important; ";
+      if (lowerTag === 'ul' || lowerTag === 'ol') {
+        const levelMatch = attributes.match(/lst-kix_[\w]+-(\d+)/);
+        const level = levelMatch ? parseInt(levelMatch[1]) : 0;
+        const markers = lowerTag === 'ul'
+          ? ['disc', 'circle', 'square']
+          : ['decimal', 'lower-alpha', 'lower-roman'];
+        currentListStyleType = markers[level % 3];
+        forcedOverrides = `margin: 0 !important; padding: 0 !important; list-style-type: ${currentListStyleType} !important; `;
       } else if (lowerTag === 'li') {
-        forcedOverrides = "margin-left: 0 !important; padding-left: 0 !important; margin-bottom: 0 !important; list-style-position: outside !important; display: list-item !important; ";
+        forcedOverrides = `padding-left: 0 !important; margin-bottom: 0 !important; list-style-position: outside !important; display: list-item !important; list-style-type: ${currentListStyleType} !important; `;
       }
 
       // --- NEW: THE SANITIZER ENGINE ---
