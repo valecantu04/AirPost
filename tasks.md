@@ -150,6 +150,14 @@ No in-app documentation existed; new users had no discoverable reference for how
 
 ---
 
+## feature/special-columns-guide
+
+### ✅ #1 — AddSpecialColumnsGuideSection: Add Special Columns section to in-app Guide
+
+The Guide had no dedicated reference for the six reserved audience sheet columns. **Fix:** Inserted a new `GUIDE_SECTIONS` entry (`id: 'special-columns'`) between `'audience'` and `'drafts'` in `script.html`, with 3 steps grouped by role (required / optional / auto-managed) and 3 callouts giving actionable usage instructions.
+
+---
+
 ## valecantu04/fix-email
 
 ### ✅ #1 — Document Tabs headings appear in email body (`Code.js`)
