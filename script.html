@@ -574,7 +574,7 @@
         // 4. Auto-generate preview on step 3 entry if subject is ready and no preview loaded
         useEffect(() => {
             if (step === 3 && subjectLine.trim() && !previewData) {
-                fetchPreview(0);
+                fetchPreview(0, true);
             }
         }, [step]);
 
@@ -612,13 +612,13 @@
         };
 
         // --- STEP 3 LOGIC ---
-        const fetchPreview = async (index) => {
+        const fetchPreview = async (index, forceRefresh = false) => {
             const sheetIdMatch = sheetUrl.match(/[-\w]{25,}/);
             if (!sheetIdMatch) return addToast('Invalid sheet URL.', 'error');
             setIsFetchingPreview(true);
             try {
                 const sheetId = sheetIdMatch[0];
-                const res = await runGas('generateEmailPreview', sheetId, selectedTemplate, selectedTab, index);
+                const res = await runGas('generateEmailPreview', sheetId, selectedTemplate, selectedTab, index, forceRefresh);
                 setPreviewData(res);
                 setPreviewIndex(index);
             } catch (err) {
@@ -634,7 +634,7 @@
                 addToast('Please enter a valid subject line.', 'error');
                 return;
             }
-            fetchPreview(0); 
+            fetchPreview(0, true);
         };
 
         const executeSend = async () => {

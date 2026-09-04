@@ -610,7 +610,7 @@ function getTemplateContent(templateId) {
         currentListStyleType = markers[level % 3];
         forcedOverrides = `margin: 0 !important; padding: 0 !important; list-style-type: ${currentListStyleType} !important; `;
       } else if (lowerTag === 'li') {
-        forcedOverrides = `padding-left: 0 !important; margin-bottom: 0 !important; list-style-position: outside !important; display: list-item !important; list-style-type: ${currentListStyleType} !important; `;
+        forcedOverrides = `padding-left: 0 !important; margin-bottom: 6pt !important; list-style-position: outside !important; display: list-item !important; list-style-type: ${currentListStyleType} !important; `;
       }
 
       // --- NEW: THE SANITIZER ENGINE ---
@@ -710,11 +710,11 @@ function getGmailSignature(fromEmail) {
   }
 }
 
-function generateEmailPreview(sheetId, templateId, tabName, rowIndex = 0) {
+function generateEmailPreview(sheetId, templateId, tabName, rowIndex = 0, forceRefresh = false) {
   try {
     const cache = CacheService.getUserCache();
     const cacheKey = 'preview_' + templateId;
-    let templateText = cache.get(cacheKey);
+    let templateText = forceRefresh ? null : cache.get(cacheKey);
     if (!templateText) {
       templateText = getTemplateContent(templateId);
       try { cache.put(cacheKey, templateText, 600); } catch (e) { /* payload too large to cache, fetch live each time */ }
