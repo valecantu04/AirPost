@@ -51,62 +51,15 @@ Both tabs share the same `wizard-layout` container. The Drafts tab renders a res
 
 ## Patterns & Utilities
 
-### `runGas` — client/server bridge (`script.html`)
+Detailed reference for the patterns below lives in `docs/reference/conventions.md` — read it before touching any of these areas.
 
-All `google.script.run` calls go through a single promise-returning wrapper:
-
-```js
-const runGas = (functionName, ...args) =>
-    new Promise((resolve, reject) => {
-        google.script.run
-            .withSuccessHandler(resolve)
-            .withFailureHandler(reject)
-            [functionName](...args);
-    });
-```
-
-Any new client-server call **must** use `runGas(...)`. Raw `google.script.run` usage produces uncatchable callbacks that bypass React error handling.
-
-### Server-side error contract (`Code.js`)
-
-Two patterns coexist — match the style of functionally similar existing functions:
-
-| Pattern | Used by |
-|---|---|
-| `return { success: false, message: "..." }` | `sendEmailsWithSheet` |
-| `throw new Error(...)` → caught by `withFailureHandler` | `getDrafts`, `getDraftContent`, `sendDrafts`, `setTemplateFolderId`, `generateAudienceSheet` |
-| Silent return `""` on failure | `getTemplateContent` |
-
-Never introduce a fourth pattern.
-
-### `extractId()` utility (`Code.js`)
-
-Parses a Drive file/folder ID from either a raw ID string or a full URL. Use this anywhere you need to normalize user-pasted input:
-
-```js
-function extractId(link) {
-    let match = link.match(/[-\w]{25,}/);
-    return match ? match[0] : null;
-}
-```
-
-### Audience sheet reserved columns
-
-Six column names are system-managed and must **never** be used as `{{placeholder}}` names in templates:
-
-`Email`, `Name`, `CC`, `Attachments`, `Timestamp`, `Template`
-
-- `CC`: optional single address per row.
-- `Attachments`: optional comma- or semicolon-separated Drive file IDs or URLs.
-- `Timestamp` and `Template` are written by the server after each successful send.
-
-### `formatName()` behavior (`Code.js`)
-
-Takes **only the first word** of the `Name` field and capitalizes it. `"john smith"` → `"John"`. Applied during both campaign sends and email preview generation. Do not change this without explicit user instruction.
-
-### Email preview cache (`Code.js`)
-
-`generateEmailPreview` caches rendered template HTML in `CacheService.getUserCache()` keyed by `'preview_' + templateId` with a 600-second TTL. The Apps Script cache has a **100 KB payload limit** — oversized templates silently fall back to a live fetch. Follow this pattern for any new server-side caching.
+- **`runGas` (client/server bridge, `script.html`)** — all `google.script.run` calls must go through the `runGas(...)` promise wrapper. Never call `google.script.run` directly; it produces uncatchable callbacks that bypass React error handling.
+- **Server-side error contract (`Code.js`)** — three coexisting patterns (return `{success, message}`, `throw new Error(...)`, or silent `""`). Match the style of functionally similar existing functions. Never introduce a fourth pattern.
+- **`extractId()` utility (`Code.js`)** — normalizes a pasted Drive file/folder ID or URL into a raw ID. Use it anywhere user-pasted Drive links are accepted.
+- **Audience sheet reserved columns** — `Email`, `Name`, `CC`, `Attachments`, `Timestamp`, `Template` are system-managed and must never be used as `{{placeholder}}` names in templates.
+- **`formatName()` (`Code.js`)** — takes only the first word of `Name` and capitalizes it. Do not change without explicit user instruction.
+- **Email preview cache (`Code.js`)** — `generateEmailPreview` caches in `CacheService.getUserCache()` with a 600s TTL and a 100 KB payload limit. Follow this pattern for any new server-side caching.
+- **`tasks.md` format** — see `docs/reference/conventions.md` for the required section/entry structure.
 
 ### Airfoil design system (`design-spec.md`)
 
@@ -116,13 +69,6 @@ All UI styling follows the **Airfoil** design system. Before writing any new com
 - Tailwind is structural layout only (`flex`, `grid`, `overflow`). Visual styles come from `.btn`, `.form-input`, `.app-card`, `.wizard-layout`, etc.
 - Icon library: Font Awesome 6 solid (`fa-solid`).
 - Never render untrusted HTML into the React DOM — always use `<iframe srcDoc sandbox="allow-same-origin">`.
-
-### `tasks.md` format
-
-Log all work in `tasks.md` using this structure:
-- `##` section named after the git branch (e.g. `## feature/drafts-view`)
-- `### ✅ #N — FunctionName: Short description` per item
-- Each item: one sentence describing the problem, then `**Fix:**` summarizing the change and which file(s) it touched.
 
 ## Strict Coding Rules for Claude Code
 
